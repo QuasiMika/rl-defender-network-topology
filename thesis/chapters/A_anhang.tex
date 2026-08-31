@@ -7,6 +7,26 @@ wiedergibt. Die Abbildungen decken alle 24 Matchups ab, getrennt nach
 verteidigter Topologie: Crown-Jewel-Quote, gehaltene Knoten, Schritte mit
 \ac{SLA}-Bruch, Abwehrbonus und Konvergenzmarken.
 
+\section{Quellcode und Daten}
+\label{sec:begleitmaterial}
+
+Der Quellcode dieser Arbeit, die Rohdaten beider Läufe und die Skripte, die
+sämtliche Abbildungen und Kennzahlen daraus erzeugen, sind dauerhaft archiviert
+unter \href{https://doi.org/10.5281/zenodo.22207721}{10.5281/zenodo.22207721}
+und werden unter
+\url{https://github.com/QuasiMika/rl-defender-network-topology} weitergeführt.
+
+Enthalten sind die Trainings- und Evaluationsprotokolle als CSV-Dateien, die
+eingefrorenen Angreifermodelle, der Topologie-Generator sowie Skripte, mit
+denen sich jede im Text genannte Zahl unabhängig gegen die Rohdaten nachrechnen
+lässt. Die trainierten Verteidigermodelle sind wegen ihres Umfangs nicht
+enthalten; für die Auswertung werden sie nicht benötigt.
+
+Das Mehragenten-Rahmenwerk MARLon ist nicht Teil des Archivs, da es ohne
+Lizenz veröffentlicht wurde. Ein beiliegendes Skript lädt es beim Urheber auf
+dem Stand, gegen den entwickelt wurde, und spielt die Anpassungen dieser Arbeit
+als Patch ein.
+
 \section{Hyperparameter}
 \label{sec:hyperparameter}
 

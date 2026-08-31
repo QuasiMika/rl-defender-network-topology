@@ -1,0 +1,932 @@
+\chapter{Grundlagen}
+\label{ch:grundlagen}
+
+Dieses Kapitel führt die Begriffe und Verfahren ein, die für die Arbeit
+vorausgesetzt werden. Es reicht vom Reinforcement Learning über die
+Grundbegriffe der Netzwerksicherheit bis zu den Arbeiten, an die die
+Untersuchung anschließt. Wie diese Grundlagen für die
+eigenen Versuche verwendet werden, behandelt \Cref{ch:versuchsaufbau}.
+
+Als Beispielszenario dient die Abwehr von Angriffen in einem
+Unternehmensnetz. Es begleitet die Darstellung von den allgemeinen
+Lernverfahren bis zu den sicherheitstechnischen Begriffen und verbindet so
+beide Hälften des Kapitels.
+
+\section{Reinforcement Learning}
+\label{sec:rl}
+
+Dieser Abschnitt entwickelt das \ac{RL} schrittweise von seiner Einordnung im
+maschinellen Lernen bis zu den Grundlagen, die der weitere Text voraussetzt.
+
+\subsection{Einordnung in das maschinelle Lernen}
+
+Maschinelles Lernen umfasst Verfahren, die eine Aufgabe nicht über eine
+ausformulierte Regel lösen, sondern ihr Verhalten aus Erfahrung ableiten. Welche
+Art von Rückmeldung diese Erfahrung liefert, trennt die Teilgebiete. Neben dem
+überwachten und dem unüberwachten Lernen führen Sutton und Barto entlang dieses
+Kriteriums das \ac{RL} als dritte Form
+an~\cite[Abschn.~1.1]{suttonbarto2018}. Für diese dritte Form ist im deutschen Sprachgebrauch keine Bezeichnung
+gebräuchlich. Sie wird deshalb durchgehend
+englisch benannt.
+
+Beim \emph{überwachten Lernen} ist die Rückmeldung \emph{instruktiv}. Ein
+Klassifikator erhält Mitschnitte des Netzwerkverkehrs, die vorab als gutartig
+oder bösartig eingestuft wurden. Weil zu jeder Verbindung die korrekte
+Einstufung bekannt ist, lässt sich der Fehler des Modells unmittelbar berechnen.
+Beim \emph{unüberwachten Lernen} entfällt jede Bewertung. Derselbe Klassifikator
+erhält dieselben Mitschnitte ohne Einstufung und fasst Verbindungen mit
+ähnlichem Muster zu Gruppen zusammen, ohne zu wissen, ob eine dieser Gruppen
+einen Angriff darstellt.
+
+Beim \ac{RL} ist die Rückmeldung \emph{evaluativ}. Hier lässt sich das Beispiel
+des Klassifikators nicht mehr fortführen, denn dieser ordnet vorliegende Daten
+ein, ohne in das Geschehen einzugreifen. An seine Stelle tritt ein Agent,
+der handelt und für jede Handlung eine Bewertung erhält, aber keinen Hinweis
+darauf, welche Handlung besser gewesen wäre. Die Rückmeldung bewertet also, ohne
+anzuleiten~\cite[S.~25]{suttonbarto2018}. Im vorliegenden Beispiel entspricht das einem Verteidiger, der auf
+die Lage im Netz mit einer Gegenmaßnahme reagiert und allein daran gemessen
+wird, wie sich diese auswirkt.
+
+Ein zweiter Unterschied betrifft nicht die Rückmeldung, sondern die Herkunft
+der Daten. In den ersten beiden Fällen liegen die Mitschnitte vor und sind vom
+Modell unabhängig; man könnte dasselbe Modell zweimal auf denselben Daten
+trainieren. Im \ac{RL} entsteht die Erfahrung dagegen erst durch das Handeln
+des Agenten: Seine Maßnahmen bestimmen, welche Situationen er anschließend
+überhaupt zu sehen bekommt. Sichert ein Verteidiger einen Netzbereich nicht
+ab, so kann er auch nicht die Zustände beobachten, welche aus dieser Maßnahme
+hervorgegangen wären.
+
+In beiden zuletzt genannten Fällen sind die Mitschnitte nicht eingestuft, was
+\ac{RL} als Sonderfall des unüberwachten Lernens erscheinen lässt. Sutton und
+Barto widersprechen dem ausdrücklich~\cite[Abschn.~1.1]{suttonbarto2018}:
+Maßgeblich ist nicht die fehlende Einstufung, sondern das Ziel. Unüberwachtes
+Lernen sucht verborgene Struktur, \ac{RL} maximiert ein Reward-Signal.
+
+\subsection{Das Grundprinzip des Reinforcement Learnings}
+\label{sec:rl-grundprinzip}
+
+Ein \ac{RL}-Aufbau besteht aus zwei Teilen, dem \emph{Agenten} und der
+\emph{Umgebung}, die in einer festen Schleife miteinander interagieren. Zu jedem
+diskreten Zeitschritt $t$ beobachtet der Agent den \emph{Zustand} $s_t$ der
+Umgebung, wählt daraufhin eine \emph{Aktion} $a_t$ und erhält von der Umgebung
+zwei Daten zurück: den neuen Zustand $s_{t+1}$ und ein Reward-Signal $R_{t+1}$,
+also eine einzelne Zahl, die diesen Schritt bewertet.
+
+Wie lange diese Schleife läuft, hängt von der Aufgabe ab. Sutton und Barto
+unterscheiden \emph{fortlaufende} Aufgaben, die kein natürliches Ende kennen,
+von \emph{episodischen}, die einen Endzustand
+besitzen~\cite[Abschn.~3.3]{suttonbarto2018}; welche Folgen das hat, zeigt
+\Cref{sec:mdp}. Die vorliegende Arbeit betrachtet ausschließlich den zweiten
+Fall. Ein Durchlauf vom Anfangszustand bis zum Endzustand heißt \emph{Episode};
+ein Training umfasst eine Vielzahl solcher Episoden. Die Umgebung wird dabei
+zu Beginn jeder Episode zurückgesetzt, die gelernten Parameter des Agenten
+bleiben jedoch erhalten.
+
+Was der Agent dabei nicht erfährt, ist ebenso wesentlich. Ob eine andere Wahl zu einem höheren Reward
+geführt hätte, muss er durch wiederholtes Ausprobieren erschließen.
+Sein Ziel ist außerdem nicht der einzelne Reward, sondern deren Summe über die
+gesamte Episode. Das schließt den Fall ein, dass eine Aktion mit geringem unmittelbarem
+Reward erst die Voraussetzung für spätere, höhere Rewards schafft.
+
+Dahinter steht eine Annahme, die Sutton und Barto als \emph{Reward-Hypothese}
+benennen. Jedes Ziel lasse sich als Maximierung des Erwartungswerts einer
+einzelnen skalaren Größe auffassen, der Summe der erhaltenen
+Rewards~\cite[Abschn.~3.2]{suttonbarto2018}. Ob eine konkrete
+Reward-Funktion das beabsichtigte Ziel tatsächlich abbildet, ist damit
+nicht sichergestellt; \Cref{sec:rl-schwierigkeiten} greift dies wieder auf.
+
+Vier Bestandteile setzen das Verfahren zusammen. Die \emph{Policy} legt das Verhalten des
+Agenten fest, indem sie jedem Zustand die dort zu wählende Aktion zuordnet. Das
+\emph{Reward-Signal} gibt das Ziel vor und bewertet jeden Schritt einzeln. Die
+\emph{Wertfunktion} schätzt demgegenüber die Summe der Rewards, die von
+einem Zustand aus noch zu erwarten sind, und blickt damit über den
+einzelnen Schritt hinaus.
+Hinzu kommt gegebenenfalls ein \emph{Modell} der Umgebung, das vorhersagt, wie
+diese auf eine Aktion reagieren
+wird~\cite[Abschn.~1.3]{suttonbarto2018}. Die folgenden Abschnitte führen diese
+Bestandteile der Reihe nach ein.
+
+\subsection{Verzögerte Belohnung}
+\label{sec:credit}
+
+Eine zentrale Herausforderung des Verfahrens besteht darin, dass ein Reward und
+die für ihn ursächliche Aktion zeitlich weit auseinanderliegen können. Eine
+Aktion kann unmittelbar keinen Reward erbringen und dennoch die Voraussetzung
+für einen Erfolg schaffen, der erst viele Schritte später eintritt. Der Reward
+fällt am Ende dieser Kette an, ohne dass erkennbar wäre, welchem der
+vorangegangenen Schritte er zuzurechnen ist.
+
+Für das vorliegende Beispiel: Übernimmt ein Angreifer einen unscheinbaren
+Rechner, bringt ihm das kaum Punkte. Findet er dort jedoch Zugangsdaten, die ihm
+zwanzig Schritte später den Zugriff auf ein wertvolles System eröffnen, war
+genau dieser frühe Schritt ausschlaggebend.
+
+Minsky benannte diese Schwierigkeit bereits 1961 als
+\emph{Credit-Assignment-Problem}~\cite{minsky1961}. Es ist der Hauptgrund
+dafür, dass \ac{RL} sehr viele Durchläufe benötigt: Die Bewertung eines frühen
+Schrittes lässt sich erst festigen, nachdem sein Nutzen über viele Episoden
+hinweg wiederholt sichtbar geworden ist. Sämtliche im Folgenden eingeführten
+Größen sind Werkzeuge, die dieses Problem adressieren.
+
+\subsection{Der Markov-Entscheidungsprozess}
+\label{sec:mdp}
+
+Um das Zusammenspiel aus \Cref{sec:rl-grundprinzip} präzise zu beschreiben, wird
+es als \ac{MDP} formalisiert. Hinter dem Begriff verbirgt sich eine Sammlung von
+fünf Angaben, die jede \ac{RL}-Aufgabe ohnehin festlegen muss:
+
+\begin{enumerate}
+  \item die Menge aller möglichen Zustände $\mathcal{S}$,
+  \item die Menge aller Aktionen $\mathcal{A}$,
+  \item die Übergangsfunktion $P(s' \mid s, a)$, also die Wahrscheinlichkeit,
+        nach Aktion $a$ im Zustand $s$ im Zustand $s'$ zu landen,
+  \item die Reward-Funktion $R(s, a)$, welche die unmittelbare Bewertung
+        liefert,
+  \item den Diskontfaktor $\gamma$ mit $0 \le \gamma \le 1$, der festlegt, wie
+        stark künftige Rewards gegenüber sofortigen zählen.
+\end{enumerate}
+
+Benannt ist das Modell nach dem Mathematiker Andrei Markov, auf dessen Arbeiten
+zu stochastischen Prozessen die zugrunde liegende Annahme zurückgeht: Der
+Zustand enthält bereits alle Information, die für die Zukunft von Bedeutung ist.
+Wie der Agent dorthin gelangt ist, spielt keine Rolle. Beim Schach trifft das
+zu, denn für den nächsten Zug zählt allein die aktuelle Stellung, nicht die
+Zugfolge, die zu ihr geführt hat. Die Annahme vereinfacht das Problem erheblich,
+weil der Agent keine Vorgeschichte mitführen
+muss~\cite[Abschn.~3.1]{suttonbarto2018}.
+
+Beide Randwerte des Diskontfaktors sind zulässig, führen aber zu Sonderfällen.
+Bei $\gamma = 0$ zählt ausschließlich der unmittelbare Reward; der Agent handelt
+vollständig kurzsichtig und kann verzögerte Belohnungen aus \Cref{sec:credit}
+grundsätzlich nicht mehr erkennen. Bei $\gamma = 1$ zählt jeder künftige Reward
+mit vollem Gewicht. Zulässig ist das nur bei episodischen Aufgaben im Sinne von
+\Cref{sec:rl-grundprinzip}, bei denen jeder Durchlauf sicher endet. Eine
+fortlaufende Aufgabe liefert dagegen unendlich viele Rewards, deren Summe ohne
+Abwertung unbeschränkt anwachsen kann; das Ziel des Agenten wäre dann nicht mehr
+definiert. Ein Wert knapp darunter genügt bereits: Die Beiträge nehmen dann
+geometrisch ab, und die Summe konvergiert. 
+
+Die fünf Angaben beschreiben die Aufgabe. Ob der Agent die Übergangsfunktion $P$
+und die Reward-Funktion $R$ seinerseits kennt, ist damit noch nicht gesagt, und
+davon hängt ab, wie er lernen kann~\cite[Abschn.~1.3]{suttonbarto2018}. Beim Schach
+kennt er beide, denn die Regeln bestimmen, welche Stellung auf einen Zug folgt
+und ob sie gewonnen ist; er kann Züge daher durchspielen, ohne sie auszuführen.
+Solche Verfahren heißen \emph{modellbasiert}. Ein Verteidiger im
+Unternehmensnetz hat diese Möglichkeit nicht: Sperrt er eine Verbindung, weiß er
+weder, ob der Angreifer sie überhaupt nutzen wollte, noch ob dieser auf einen
+anderen Weg ausweicht. Er erfährt erst hinterher, was eingetreten ist, und
+Verfahren, die allein damit arbeiten, heißen \emph{modellfrei}.
+
+Die Agenten dieser Arbeit lernen modellfrei, und eine Alternative besteht nicht:
+Eine Übergangsfunktion für ein Netz unter Angriff aufzustellen setzte voraus,
+den Ausgang jedes möglichen Angriffsschritts vorab zu kennen. Was sich nicht
+vorausrechnen lässt, muss ausprobiert werden; daraus folgt der hohe Bedarf an
+Erfahrung, den \Cref{sec:rl-schwierigkeiten} aufgreift.
+
+\subsection{Policy, Return und Diskontierung}
+\label{sec:policy}
+
+Das Verhalten des Agenten beschreibt die \emph{Policy} $\pi(a \mid s)$. Sie ist
+eine bedingte Wahrscheinlichkeit: $\pi(a \mid s)$ gibt an, mit welcher
+Wahrscheinlichkeit der Agent die Aktion $a$ ausführt, wenn er sich im Zustand
+$s$ befindet. Für jeden festen Zustand ergibt sie damit eine
+Wahrscheinlichkeitsverteilung über alle Aktionen, deren Werte sich zu eins
+summieren. Die Policy ist genau das, was im Training verändert wird.
+
+Ihr Ziel ist nicht der größtmögliche unmittelbare Reward. Maßgeblich ist der
+\emph{Return} $G_t$ zum Zeitpunkt $t$, also die Summe aller noch folgenden
+Rewards $R_{t+k+1}$, wobei spätere Beiträge mit dem Diskontfaktor $\gamma$
+abgewertet werden:
+%
+\begin{equation}
+  G_t = \sum_{k=0}^{\infty} \gamma^{k} R_{t+k+1}.
+  \label{eq:return}
+\end{equation}
+%
+Der Laufindex $k$ zählt dabei die künftigen Schritte, sodass der Faktor
+$\gamma^{k}$ einen Reward umso stärker abwertet, je weiter er in der Zukunft
+liegt. Der um eins verschobene Index folgt der Zählweise aus
+\Cref{sec:rl-grundprinzip}: Ein Reward wird nach dem Zeitpunkt benannt, zu dem
+er \emph{eintrifft}, und er trifft stets einen Schritt nach der Aktion ein, die
+ihn ausgelöst hat. Für $k = 0$ steht dort deshalb $R_{t+1}$, also der Reward
+für die zum Zeitpunkt $t$ gewählte Aktion.
+
+\subsection{Wert- und Vorteilsfunktion}
+\label{sec:wertfunktion}
+
+Um Zustände und Aktionen vergleichbar zu machen, dienen zwei Größen. Die
+\emph{Aktionswertfunktion} $Q^{\pi}(s,a)$ gibt den erwarteten Return an, wenn
+der Agent im Zustand $s$ zunächst die Aktion $a$ ausführt und erst danach wieder
+der Policy $\pi$ folgt. Die \emph{Zustandswertfunktion} $V^{\pi}(s)$ beantwortet
+dieselbe Frage ohne Festlegung auf eine bestimmte Aktion: Sie ist der
+Erwartungswert von $Q^{\pi}(s,a)$ über die Aktionen, die die Policy im Zustand
+$s$ wählt. Bei endlich vielen Aktionen ist das die mit den
+Auswahlwahrscheinlichkeiten gewichtete Summe:
+%
+\begin{equation}
+  V^{\pi}(s)
+    = \mathbb{E}_{a \sim \pi(\cdot \mid s)}\!\left[Q^{\pi}(s,a)\right]
+    = \sum_{a \in \mathcal{A}} \pi(a \mid s)\, Q^{\pi}(s,a).
+  \label{eq:v-aus-q}
+\end{equation}
+%
+Dabei bezeichnet $\mathbb{E}$ den Erwartungswert, und die Schreibweise
+$a \sim \pi(\cdot \mid s)$ besagt, dass die Aktion $a$ gemäß der Policy im
+Zustand $s$ gezogen wird. Auch $V^{\pi}$ setzt Handeln voraus, der Unterschied
+zu $Q^{\pi}$ liegt allein darin, dass über die Aktionen gemittelt wird, statt
+eine einzelne festzulegen. Der Zustandswert steht damit nicht für eine bestimmte
+Aktion, etwa die wahrscheinlichste, sondern für den Erwartungswert dessen, was
+die Policy in $s$ tun würde.
+
+Aus der Differenz beider ergibt sich die \emph{Vorteilsfunktion}, benannt nach
+dem englischen \emph{advantage} und nicht zu verwechseln mit der Aktionsmenge
+$\mathcal{A}$:
+%
+\begin{equation}
+  A^{\pi}(s,a) = Q^{\pi}(s,a) - V^{\pi}(s).
+  \label{eq:advantage}
+\end{equation}
+%
+Sie beantwortet die für das Training entscheidende Frage: War diese Aktion
+besser als das, was die Policy in dieser Lage üblicherweise tut? Ein positiver
+Wert bedeutet besser als der eigene Erwartungswert, ein negativer schlechter.
+Lernverfahren verschieben die Policy in Richtung der Aktionen mit positivem
+Vorteil; wie das im Einzelnen geschieht, behandelt \Cref{sec:policyupdate}.
+
+Ein Zahlenbeispiel verdeutlicht das Zusammenspiel. Stünden dem Agenten in einer
+Lage drei Aktionen mit den Aktionswerten 80, 10 und 0 offen und wählte die
+Policy sie mit 70, 20 und 10 Prozent, ergäbe sich nach \Cref{eq:v-aus-q} ein
+Zustandswert von $0{,}7 \cdot 80 + 0{,}2 \cdot 10 + 0{,}1 \cdot 0 = 58$. Die
+erste Aktion hätte damit den Vorteil $+22$, die zweite $-48$. Steigt der Anteil
+der ersten im Lauf des Trainings auf 95 Prozent, wächst der Zustandswert auf
+76{,}4, und ihr Vorteil schrumpft auf $+3{,}6$.
+
+Die Bezugsgröße wächst also mit der Policy mit. Sobald der Agent überwiegend das
+Beste tut, kann nichts mehr deutlich besser als sein eigener Erwartungswert
+sein, und die Anpassungen kommen zum Erliegen. Formal folgt das aus
+\Cref{eq:v-aus-q}: Unter der Policy gemittelt ergibt der Vorteil stets null.
+
+Der Vorteil misst nur den Abstand zum eigenen Erwartungswert. Ob eine Lage
+insgesamt günstig oder ungünstig ist, fällt damit heraus; verglichen wird
+ausschließlich innerhalb einer Lage. Unempfindlich gegen die Höhe der Rewards
+ist das Verfahren deshalb aber nicht: Werden alle Rewards mit zehn
+multipliziert, wächst der Vorteil um denselben Faktor und mit ihm die Größe der
+Anpassung. Heraus fällt das Niveau einer einzelnen Lage, nicht der Maßstab der
+Reward-Funktion.
+
+$V^{\pi}$ und $Q^{\pi}$ sind dem Agenten allerdings nicht bekannt. Wären sie es,
+ließe sich stets die Aktion mit dem höchsten Aktionswert wählen, und ein
+Lernproblem bestünde nicht. Beide müssen deshalb geschätzt werden, und wie das
+geschieht, behandelt \Cref{sec:drl}.
+
+\subsection{Actor und Critic}
+\label{sec:actorcritic}
+
+Aus den bisher eingeführten Größen ergibt sich eine Aufgabenteilung. Ein Agent
+muss zweierlei leisten: Er muss eine Aktion wählen, und er muss einschätzen
+können, wie gut seine Lage ist. Das Erste leistet die Policy aus
+\Cref{sec:policy}, das Zweite die Zustandswertfunktion aus
+\Cref{sec:wertfunktion}. Beide sind bislang nur beschrieben, nicht verortet.
+
+Eine verbreitete Familie von Verfahren weist die beiden Aufgaben deshalb
+getrennten Bestandteilen zu, und das erklärt zugleich deren
+Namen~\cite[Abschn.~13.5]{suttonbarto2018}. Der
+\emph{Actor} hält die Policy und wählt die Aktionen; er ist der handelnde Teil.
+Der \emph{Critic} schätzt den Zustandswert und bewertet im Nachhinein, ob das
+Ergebnis besser oder schlechter ausfiel als erwartet. Diese Differenz ist der
+Vorteil aus \Cref{eq:advantage}. Er steuert die Anpassung des Actors, während
+der Critic zugleich an den beobachteten Rewards nachjustiert wird. Beide
+verbessern sich also im selben Durchlauf; zu Beginn ist der Critic allerdings
+ungenau, weshalb frühe Vorteilsschätzungen mit Vorsicht zu betrachten sind.
+
+Diese Zweiteilung ist nicht zwingend. \emph{Wertbasierte} Verfahren kommen ohne
+eigenen Actor aus und leiten ihr Verhalten unmittelbar aus geschätzten
+Aktionswerten ab; rein \emph{policybasierte} Verfahren verzichten umgekehrt auf
+den Critic und arbeiten allein mit den beobachteten
+Returns~\cite[Abschn.~13.3--13.5]{suttonbarto2018}.
+\emph{Actor-Critic-Verfahren} verbinden beides. Der in dieser Arbeit
+eingesetzte Algorithmus zählt zu dieser Klasse.
+
+\subsection{Exploration und Exploitation}
+
+Ein Agent, der stets die bislang beste bekannte Aktion wählt, entdeckt nichts
+Besseres mehr. Einer, der nur ausprobiert, nutzt sein Wissen nicht. Zwischen
+diesen beiden Polen muss abgewogen werden, und die Abwägung ist nicht einmalig,
+sondern begleitet das gesamte Training. Sutton und Barto heben diesen Konflikt
+als eine Schwierigkeit hervor, die im überwachten und unüberwachten Lernen gar
+nicht erst auftritt~\cite[Abschn.~1.1]{suttonbarto2018}.
+
+Verfahren mit \emph{stochastischer} Policy lösen das implizit. Weil die Policy
+nach \Cref{sec:policy} eine Wahrscheinlichkeitsverteilung ausgibt und keine
+einzelne Aktion, bleibt ein Rest an Exploration erhalten, solange diese
+Verteilung nicht auf eine einzige Aktion zusammenfällt. Der Agent zieht seine
+Aktion in jedem Schritt neu aus der Verteilung und weicht damit gelegentlich von
+seiner derzeit besten Einschätzung ab.
+
+\section{Deep Reinforcement Learning}
+\label{sec:drl}
+
+Der vorangegangene Abschnitt beschreibt das \ac{RL} unabhängig davon, wie
+Policy und Wertfunktion dargestellt werden. Dieser Abschnitt führt tiefe
+neuronale Netze als solche Darstellung ein, beschreibt die daraus
+entstehende Actor-Critic-Architektur und das in dieser Arbeit eingesetzte
+Verfahren \ac{PPO} und schließt mit den Schwierigkeiten, die dieses
+Vorgehen mit sich bringt.
+
+\subsection{Von der Tabelle zur Funktionsapproximation}
+\label{sec:funktionsapproximation}
+
+Wie Policy und Wertfunktionen dargestellt werden, blieb bisher offen. Für kleine
+Aufgaben genügt eine Tabelle mit einem Eintrag je Zustand. Die Einträge stehen
+dabei unabhängig nebeneinander: Was der Agent in einem Zustand gelernt hat,
+steht in genau einer Zeile und sagt über keine andere etwas aus. Bei großen
+Zustandsräumen wird das zum Problem, denn dort erreicht der Agent jeden
+einzelnen Zustand nur selten oder überhaupt nicht. Er müsste jeden davon eigens
+erleben, um ihn beurteilen zu können.
+
+Die \emph{Funktionsapproximation} ersetzt die Tabelle durch eine Funktion, die
+den Wert aus den Merkmalen eines Zustands \emph{berechnet}, statt ihn
+nachzuschlagen. Sie besitzt einstellbare Parameter, die im Training angepasst
+werden; bei neuronalen Netzen heißen diese \emph{Gewichte} und werden
+zusammenfassend mit $\theta$ bezeichnet. Weil ähnliche Zustände ähnliche
+Merkmale aufweisen, liefert die Funktion für sie auch ähnliche Ergebnisse.
+Gelerntes überträgt sich damit auf Zustände, die der Agent nie besucht hat.
+
+Werden für diese Approximation tiefe neuronale Netze eingesetzt, spricht man von
+\emph{Deep Reinforcement Learning}. Der Ansatz verbindet die Entscheidungslogik
+des \ac{RL} mit der Fähigkeit neuronaler Netze, aus hochdimensionalen
+Beobachtungen brauchbare Merkmale zu gewinnen~\cite[Teil~II]{suttonbarto2018}.
+Auf diese Weise lernten Agenten bereits allein aus Bildpunkten und Punktestand,
+Videospiele auf menschlichem Niveau zu spielen~\cite[S.~529]{mnih2015dqn}.
+
+\subsection{Die Actor-Critic-Architektur}
+\label{sec:ac-architektur}
+
+Actor und Critic aus \Cref{sec:actorcritic} sind bislang Rollen, keine
+konkreten Gebilde: Es steht fest, was sie leisten sollen, nicht aber, wodurch.
+Die Funktionsapproximation beantwortet das. Beide Rollen werden durch je ein
+neuronales Netz besetzt, und diese Aufteilung heißt
+\emph{Actor-Critic-Architektur}~\cite[Abschn.~13.5]{suttonbarto2018}.
+
+Der \emph{Actor} bildet den beobachteten Zustand auf eine
+Wahrscheinlichkeitsverteilung über die Aktionen ab und stellt damit die Policy
+dar; seine Gewichte werden mit $\theta$ bezeichnet, weshalb die Policy im
+Folgenden als $\pi_{\theta}$ geschrieben wird. Der \emph{Critic} bildet
+denselben Zustand auf eine einzelne Zahl ab, nämlich auf seine Schätzung des
+Zustandswerts $V^{\pi}(s)$. Beide sehen also dieselbe Eingabe und
+unterscheiden sich allein in dem, was sie ausgeben.
+
+Damit ist zugleich gesagt, welcher Art die Agenten dieser Arbeit sind:
+Angreifer wie Verteidiger sind Deep-\ac{RL}-Agenten nach genau diesem Muster,
+jeder mit einem Actor- und einem Critic-Netz.
+
+\subsection{Aktualisierung der Policy}
+\label{sec:policyupdate}
+
+Bislang wurde gesagt, dass die Policy im Training verändert wird, aber nicht,
+wie. Dieser Abschnitt schließt die Lücke. Er beschreibt zunächst das Prinzip,
+dann die Schätzung des Vorteils und schließlich den Ablauf, in dem beides
+zusammenwirkt.
+
+\paragraph{Das Prinzip: ein Schritt entlang des Gradienten.} Die Policy
+ist nach \Cref{sec:funktionsapproximation} durch die Gewichte
+$\theta$ des Actors bestimmt. Sie zu verändern heißt also, diese Zahlen zu
+verändern. Gesucht ist dafür eine Zielgröße $L(\theta)$, die genau dann groß
+ist, wenn die Policy gut ist. Der \emph{Gradient} $\nabla_{\theta} L(\theta)$
+gibt für jedes einzelne Gewicht an, in welche Richtung und wie stark es diese
+Zielgröße beeinflusst. Ein Lernschritt verschiebt die Gewichte ein Stück in
+diese Richtung:
+%
+\begin{equation}
+  \theta \leftarrow \theta + \alpha \, \nabla_{\theta} L(\theta).
+  \label{eq:gradientenschritt}
+\end{equation}
+%
+Der Faktor $\alpha$ heißt \emph{Lernrate} und legt fest, wie weit ein einzelner
+Schritt reicht. Er ist klein gewählt, sodass sich die Policy über viele kleine
+Schritte verändert statt über wenige große.
+
+Damit bleibt die Frage, welche Zielgröße einzusetzen ist. Das
+\emph{Policy-Gradienten-Theorem} gibt darauf die
+Antwort~\cite[Abschn.~13.2--13.5]{suttonbarto2018}; in der für Actor-Critic-Ver\-fahren
+gebräuchlichen Schätzform lautet der
+Gradient~\cite[Gl.~(1)]{schulman2017ppo}
+%
+\begin{equation}
+  \nabla_{\theta} L(\theta) = \hat{\mathbb{E}}_t\!\left[
+    \nabla_{\theta} \log \pi_{\theta}(a_t \mid s_t)\, \hat{A}_t \right].
+  \label{eq:policygradient}
+\end{equation}
+%
+Darin ist $\hat{A}_t$ der geschätzte Vorteil der tatsächlich gespielten Aktion.
+Der wahre Vorteil aus \Cref{eq:advantage} ist unbekannt, weil $Q^{\pi}$ und
+$V^{\pi}$ es sind; geschätzt wird er aus den tatsächlich erhaltenen Rewards und
+den Vorhersagen des Critic~\cite{schulman2018gae}.
+
+Für jede beobachtete Kombination aus Zustand und Aktion wird ermittelt, wie die
+Gewichte zu verändern wären, damit genau diese Aktion in genau diesem Zustand
+wahrscheinlicher wird, und dieser Beitrag wird mit dem Vorteil gewichtet. War
+der Vorteil positiv, verschiebt der Schritt die Gewichte so, dass die Aktion
+künftig wahrscheinlicher wird; war er negativ, kehrt sich das Vorzeichen um und
+sie wird unwahrscheinlicher. Genau darin besteht das Lernen.
+
+Das Symbol $\hat{\mathbb{E}}_t$ bezeichnet dabei einen Erwartungswert, der nicht
+exakt berechnet, sondern als Mittelwert über die gesammelten Beobachtungen
+geschätzt wird. Gemittelt wird über alle Paare aus Zustand und Aktion, die der
+Agent in den vorangegangenen Zeitschritten tatsächlich durchlaufen hat. Der
+Unterschied zum Erwartungswert $\mathbb{E}$ aus \Cref{eq:v-aus-q} ist also, dass
+dort über eine bekannte Verteilung summiert wird, während hier eine Stichprobe
+an ihre Stelle tritt; das Dach kennzeichnet die Schätzung.
+
+\paragraph{Der Ablauf.}
+Beides zusammen ergibt eine Schleife, die sich über das gesamte Training
+wiederholt und in \Cref{fig:rl-schleife} dargestellt ist. Der Agent handelt
+zunächst eine feste Zahl von Schritten nach seiner aktuellen Policy und
+speichert dabei Zustände, Aktionen, Rewards und Critic-Schätzungen; dieser
+Vorrat heißt \emph{Rollout}. Anschließend werden daraus die Vorteile bestimmt.
+Das setzt voraus, dass bereits feststeht, wie es weiterging, und ist deshalb
+erst nach dem Sammeln möglich. Erst dann folgen die Gewichtsanpassungen: Der Vorrat wird in
+kleinere Teile, sogenannte \emph{Minibatches}, zerlegt und mehrfach
+durchlaufen, wobei jeder Teil einen Schritt nach \Cref{eq:gradientenschritt}
+auslöst. Ein vollständiger Durchgang durch den Vorrat heißt \emph{Epoche}.
+Zugleich wird der Critic daraufhin angepasst, dass seine Schätzungen den
+tatsächlich beobachteten Returns näher kommen. Danach wird der Vorrat verworfen
+und die Schleife beginnt von vorn, denn er stammt nun von einer veralteten
+Policy.
+
+\begin{figure}[H]
+  \centering
+  \begin{tikzpicture}[
+    node distance=5mm,
+    schritt/.style={draw=topoLine, line width=0.4pt, fill=topoNode,
+      rounded corners=2pt, align=center, inner sep=4pt,
+      text width=92mm, minimum height=10mm, font=\small},
+    ->, >={Stealth[length=4pt]},
+  ]
+    \node[schritt] (a) {\textbf{1. Erfahrung sammeln}\\[1pt]
+      {\scriptsize $n$ Schritte nach der aktuellen Policy handeln (Rollout)}};
+    \node[schritt, below=of a] (b) {\textbf{2. Vorteile schätzen}\\[1pt]
+      {\scriptsize $\hat{A}_t$ aus Rewards und Critic-Schätzungen}};
+    \node[schritt, below=of b] (c) {\textbf{3. Gewichte anpassen}\\[1pt]
+      {\scriptsize mehrere Epochen über Minibatches: Actor nach
+      \Cref{eq:gradientenschritt}, Critic gegen die Returns}};
+    \node[schritt, below=of c] (d) {\textbf{4. Erfahrung verwerfen}\\[1pt]
+      {\scriptsize der Vorrat stammt jetzt von einer veralteten Policy}};
+    % Ruecklaufkante rechts an allen Kaesten vorbei: Die Spalte (rand) liegt
+    % ausserhalb der breitesten Box, damit der Pfeil keinen Kasten kreuzt.
+    \coordinate (rand) at ([xshift=6mm]a.east);
+    \draw (a) -- (b);
+    \draw (b) -- (c);
+    \draw (c) -- (d);
+    \draw (d.east) -- (d.east -| rand) -- (a.east -| rand) -- (a.east);
+  \end{tikzpicture}
+  \caption[Trainingsschleife eines Actor-Critic-Verfahrens]{Trainingsschleife
+  eines Actor-Critic-Verfahrens. Gehandelt wird in Schritt~1, gelernt erst in
+  Schritt~3; zwischen zwei Lernphasen bleibt die Policy unverändert.}
+  \label{fig:rl-schleife}
+\end{figure}
+
+Zwei Eigenschaften dieses Ablaufs sind später von Bedeutung. Erstens ist die
+Policy zwischen zwei Lernphasen konstant, der Agent lernt also nicht nach jedem
+einzelnen Schritt. Zweitens wird derselbe Vorrat mehrfach verwendet, was die
+Zahl der benötigten Umgebungsschritte senkt, zugleich aber die Frage aufwirft,
+wie weit sich die Policy dabei von derjenigen entfernen darf, mit der der Vorrat
+gesammelt wurde. Genau daran setzt das im folgenden Abschnitt beschriebene
+Verfahren an.
+
+\subsection{Proximal Policy Optimization}
+\label{sec:ppo}
+
+\ac{A2C} und \ac{PPO} sind zwei verbreitete Verfahren, die beide der
+Actor-Critic-Architektur folgen und regelmäßig miteinander verglichen
+werden~\cite{delafuente2024comparative}. Sie unterscheiden sich darin, wie stark
+ein einzelner Lernschritt die Policy verändern darf.
+
+A2C sammelt wenige Schritte Erfahrung und aktualisiert die Policy daraufhin
+unmittelbar~\cite[Abschn.~13.5]{suttonbarto2018}; die Schrittweite ist dabei
+nicht nach oben begrenzt. Fällt ein Vorteil einmal ungewöhnlich groß aus, kann
+eine einzelne Aktualisierung die Policy weit verschieben. Eine Aktion, die
+zufällig einmal sehr gut ausging, wird dann sofort zur Gewohnheit, auch wenn sie
+es nicht verdient hat. Schulman et al. benennen genau das als Schwäche des
+unbeschränkten Vorgehens, das zu \glqq destructively large policy
+updates\grqq{} führen könne~\cite[Abschn.~2.1]{schulman2017ppo}. \ac{PPO} setzt
+dort an und deckelt die Verschiebung.
+
+Gemessen wird sie an einer einzigen Größe: Um welchen Faktor ändert sich die
+Wahrscheinlichkeit der Aktion, die tatsächlich gespielt wurde? Hielt die alte
+Policy sie mit 20 Prozent für richtig und die neue mit 24 Prozent, so beträgt
+dieser Faktor $24/20 = 1{,}2$. Formal ist das~\cite[Abschn.~3]{schulman2017ppo}
+%
+\begin{equation}
+  \label{eq:ppo-ratio}
+  r_t(\theta) = \frac{\pi_{\theta}(a_t \mid s_t)}{\pi_{\theta_{\text{alt}}}(a_t \mid s_t)}.
+\end{equation}
+%
+Dabei steht $\theta$ für die Gewichte des Actor-Netzes, also für das, was beim
+Training verändert wird, und $\theta_{\text{alt}}$ für ihren Stand vor der
+Aktualisierung. Im Zähler steht die neue Wahrscheinlichkeit der Aktion $a_t$ im
+Zustand $s_t$, im Nenner die alte. Ein Wert von eins bedeutet keine Änderung,
+ein größerer Wert eine Erhöhung, ein kleinerer eine Verringerung.
+
+Zu beachten ist, dass $r_t(\theta)$ keine einzelne Zahl je Lernschritt ist. Der
+Index $t$ steht für einen bestimmten Zeitschritt, und das Verhältnis wird für
+jedes im Rollout beobachtete Paar $(s_t, a_t)$ gesondert gebildet. Erst die
+Mittelung über all diese Paare ergibt die Größe, die das Training maximiert.
+
+Um diesen Faktor legt \ac{PPO} ein festes Band. Erlaubt ist nur der Bereich
+zwischen $1-\varepsilon$ und $1+\varepsilon$, bei dem von Schulman et al.
+vorgeschlagenen Wert $\varepsilon = 0{,}2$ also zwischen 0,8 und 1,2, was einer
+Änderung von höchstens zwanzig Prozent
+entspricht~\cite[Abschn.~3]{schulman2017ppo}. Verlässt der Faktor dieses Band,
+wird er für die Berechnung auf den Randwert zurückgesetzt. Genau das leistet die
+Funktion $\operatorname{clip}$ in der
+Zielfunktion~\cite[Gl.~(7)]{schulman2017ppo}
+%
+\begin{equation}
+  \label{eq:ppo-clip}
+  L^{\text{CLIP}}(\theta) = \hat{\mathbb{E}}_t\!\left[
+    \min\!\left(
+      r_t(\theta)\,\hat{A}_t,\;
+      \operatorname{clip}\!\left(r_t(\theta),\, 1-\varepsilon,\, 1+\varepsilon\right)\hat{A}_t
+    \right)\right],
+\end{equation}
+%
+die anstelle der Grundform aus \Cref{eq:policygradient} in
+\Cref{eq:gradientenschritt} eingesetzt wird. Sie enthält drei Bestandteile. Der
+geschätzte Vorteil $\hat{A}_t$ gibt an, ob die Aktion besser oder schlechter
+ausfiel als erwartet. Der Faktor $r_t(\theta)$ davor sorgt dafür, dass eine
+Erhöhung der Wahrscheinlichkeit bei positivem Vorteil den Ausdruck wachsen
+lässt: Gute Aktionen wahrscheinlicher zu machen, lohnt sich. Das
+$\hat{\mathbb{E}}_t$ ist der bereits eingeführte geschätzte Erwartungswert, hier
+also der Mittelwert über alle Paare aus Zustand und Aktion des Rollouts.
+
+Der Nutzen der Deckelung zeigt sich am Zahlenbeispiel. Eine Aktion sei mit
+$\hat{A}_t = 5$ deutlich besser ausgefallen als erwartet, und die Aktualisierung
+wolle ihre Wahrscheinlichkeit von 20 auf 40 Prozent anheben, also
+$r_t(\theta) = 2$. Der linke Term im Minimum ergäbe dann $2 \cdot 5 = 10$, der
+rechte dagegen nur $1{,}2 \cdot 5 = 6$, weil der Faktor dort auf 1,2 gestutzt
+wird. Das Minimum wählt den kleineren Wert, hier also 6. Das ist genau der Wert,
+den auch eine Anhebung auf lediglich 24 Prozent erbracht hätte. Über das Band
+hinaus ist somit nichts mehr zu gewinnen, und der Anreiz zum großen Sprung
+entfällt. Bei negativem Vorteil greift die Begrenzung spiegelbildlich auf der
+Gegenseite und verhindert, dass die Wahrscheinlichkeit einer Aktion in einem Zug
+fast auf null gedrückt wird.
+
+Damit ist zugleich die am Ende von \Cref{sec:policyupdate} offene Frage
+beantwortet: Der Vorrat darf mehrfach verwendet werden, weil die Deckelung
+verhindert, dass sich die Policy dabei zu weit von derjenigen entfernt, mit der
+er gesammelt wurde.
+
+\subsection{Typische Schwierigkeiten}
+\label{sec:rl-schwierigkeiten}
+
+Fünf Eigenschaften des Ansatzes erschweren seinen Einsatz und werden im weiteren
+Verlauf der Arbeit wiederholt eine Rolle spielen.
+
+\paragraph{Hoher Bedarf an Erfahrung.}
+Aus dem Credit-Assignment-Problem aus \Cref{sec:credit} folgt unmittelbar, dass
+ein Agent sehr viele Schritte benötigt, bevor sich eine Bewertung festigt. Wo
+überwachte Verfahren aus einem einzelnen eingestuften Beispiel unmittelbar
+lernen, muss ein \ac{RL}-Agent denselben Zusammenhang über viele Episoden hinweg
+wiederholt beobachten. Ein Training in der Realität scheidet dadurch für viele
+Aufgaben aus.
+
+\paragraph{Der Reward bestimmt das Verhalten vollständig.}
+Ein Agent maximiert die Zielgröße, die ihm vorgegeben wird, und nicht die
+Absicht dahinter. Belohnt eine Reward-Funktion versehentlich einen Vorgang, der
+sich beliebig wiederholen lässt, ohne dass sich an der Lage etwas ändert, so
+lernt der Agent genau diese Wiederholung. Sein Verhalten ist dann formal korrekt
+und inhaltlich wertlos.
+
+Damit ist die Reward-Hypothese aus \Cref{sec:rl-grundprinzip} nicht widerlegt,
+aber ihre praktische Grenze benannt: Sie behauptet, dass sich ein Ziel als
+skalare Größe ausdrücken \emph{lässt}, nicht, dass eine beliebige solche Größe
+das gemeinte Ziel auch trifft. Ob beides zusammenfällt, entscheidet der Entwurf
+der Reward-Funktion. Er ist deshalb kein Nebenaspekt, sondern bestimmt, was
+überhaupt gemessen wird.
+
+\paragraph{Mehrere lernende Agenten verletzen die Modellannahme.}
+Der \ac{MDP} aus \Cref{sec:mdp} setzt eine konstante Übergangsfunktion voraus.
+Handeln zwei Agenten im selben System und lernen beide gleichzeitig, so ist das
+nicht mehr gegeben: Aus Sicht des einen verändert sich die Umgebung schon
+dadurch, dass der andere seine Policy anpasst. Formal liegt dann kein \ac{MDP}
+mehr vor, sondern ein \emph{Markov-Spiel}, und die Zielgröße verschiebt sich
+fortlaufend. Aufgaben dieser Art sind Gegenstand des \ac{MARL}, das hier nicht
+weiter verfolgt wird: Der Aufbau dieser Arbeit vermeidet die Schwierigkeit,
+indem zu jedem Zeitpunkt nur einer der beiden Agenten lernt
+(\Cref{sec:phasen}).
+
+\paragraph{Unvollständige Beobachtbarkeit.}
+Die Markov-Annahme verlangt, dass der beobachtete Zustand alle für die Zukunft
+wesentliche Information enthält. In sicherheitsnahen Anwendungen ist das selten
+erfüllt: Ein Angreifer kennt nur die Teile des Netzes, die er bereits entdeckt
+hat. Ein Verteidiger sieht umgekehrt zwar den Zustand der eigenen Systeme und
+damit auch, welche davon kompromittiert sind, nicht aber den Wissensstand des
+Angreifers, also welche Knoten dieser bereits entdeckt und welche Zugangsdaten
+er erbeutet hat. Beide beobachten den Zustand somit nur teilweise; formal liegt
+dann ein \emph{teilweise beobachtbarer} Entscheidungsprozess vor.
+
+In der Praxis wird die Abweichung überwiegend hingenommen und weiterhin ein
+\ac{MDP} unterstellt. Gangupantulu et al. benennen den Grund: Die teilweise
+beobachtbare Modellierung sei zwar realistischer, habe sich aber für große
+Netze nicht als skalierbar erwiesen und verlange, zahlreiche
+Wahrscheinlichkeitsverteilungen vorab zu
+modellieren~\cite[Abschn.~II.C]{gangupantulu2021cja}. Die Verfahren werden also
+angewendet, ohne dass ihre Voraussetzungen streng erfüllt sind, und das ist
+eine bewusste Abwägung zwischen Wirklichkeitstreue und Handhabbarkeit.
+
+\paragraph{Stochastik der Ergebnisse.}
+Schließlich verläuft das Training selbst nicht deterministisch. Die
+Initialisierung der Netze, die Ziehung der Aktionen aus der Policy und die
+Umgebung selbst enthalten Zufall. Zwei Läufe desselben Aufbaus können deshalb
+unterschiedlich ausfallen, weshalb ein einzelner Lauf eine Stichprobe darstellt
+und kein Ergebnis.
+
+\section{Grundbegriffe der Netzwerksicherheit}
+\label{sec:netzsicherheit}
+
+Dieser Abschnitt wechselt vom Lernverfahren zum Gegenstand. Er beschreibt
+die Rollen von Angreifer und Verteidiger sowie den Ablauf eines Angriffs,
+legt fest, was in dieser Arbeit unter einer Topologie verstanden wird, und
+stellt die Segmentierungsmuster vor, aus denen die verglichenen Topologien
+hervorgehen.
+
+\subsection{Angreifer, Verteidiger und der Ablauf eines Angriffs}
+\label{sec:angreifer-verteidiger}
+
+Ein Netz besteht in der hier verwendeten Abstraktion aus \emph{Knoten}. Ein
+Knoten steht für einen einzelnen Rechner, also einen \emph{Host}, der
+\emph{Dienste} anbietet. Jeder Dienst lauscht auf einem \emph{Port} und verlangt
+zur Anmeldung \emph{Zugangsdaten}. Welche Verbindungen zwischen zwei Knoten
+überhaupt zustande kommen dürfen, regeln \emph{Firewall-Regeln}: Eine Freigabe
+erlaubt Verkehr auf einem bestimmten Port, eine Sperre unterbindet ihn.
+
+Der \emph{Angreifer} verfolgt das Ziel, Kontrolle über möglichst wertvolle
+Systeme zu erlangen. Für diese wertvollsten Systeme hat sich der Begriff
+\emph{Crown Jewels} eingebürgert. Gemeint sind diejenigen IT-Systeme, auf deren
+bestimmungsgemäßen Betrieb eine Organisation angewiesen ist; wie kritisch ein
+System ist, bemisst sich dabei an der Funktion, die es erfüllt, und an den
+Daten, die es vorhält~\cite[Abschn.~II.A]{gangupantulu2021cja}.
+
+Entscheidend an dieser Definition ist, dass sie nicht an der Netzstruktur
+ansetzt, sondern an der Aufgabe der Organisation. Ermittelt werden Crown Jewels
+in einem eigenen Verfahren, der \emph{Crown Jewels Analysis}, die die
+Geschäftsaufgabe mit den vorhandenen IT-Werten abgleicht und jedem System einen
+Relevanzwert zuweist; erst dadurch treten die betreffenden Systeme als die
+wichtigsten und wertvollsten hervor~\cite[Abschn.~II.A]{gangupantulu2021cja}.
+Derselbe Rechner kann somit in einer Organisation ein Crown Jewel sein und in
+einer anderen ohne besondere Bedeutung.
+
+Welches System diese Rolle in einem Netz einnimmt, ist damit keine Frage der
+Technik, sondern eine Festlegung, die vorab getroffen werden muss.
+
+Üblicherweise wird nicht der Weg in das Netz hinein modelliert, sondern der Weg
+darin. Das \emph{Assumed-Breach-Prinzip} setzt voraus, dass ein erster Host
+bereits kompromittiert ist, und fragt, was der Angreifer von dort aus erreicht.
+Die Annahme ist realistisch, weil sich der erste Zugang, etwa über eine
+Phishing-Nachricht, kaum zuverlässig verhindern lässt, und sie verschiebt den
+Blick auf das, was danach geschieht.
+
+Dieses Weiterarbeiten von einem übernommenen Host zum nächsten heißt
+\emph{laterale Bewegung} und ist als eigene Taktik
+definiert~\cite{mitreattack}. Sie setzt zweierlei voraus: einen Netzpfad zum
+Ziel, den die Firewall zulassen muss, und gültige Zugangsdaten für das dort
+laufende System. Beide Voraussetzungen sind voneinander unabhängig und müssen
+gemeinsam erfüllt sein. Ein Angreifer, der ein Passwort
+kennt, den betreffenden Rechner aber nicht erreicht, kommt nicht weiter.
+Umgekehrt gilt dasselbe.
+
+Ein Host, der einem Angreifer als Zwischenstation für solche Schritte dient,
+heißt \emph{Pivot Point}, ein Knoten, den jeder Weg zu einem Ziel passieren
+muss, \emph{Chokepoint}~\cite[Abschn.~II.A]{gangupantulu2021cja}. Ein Pivot
+Point ist nicht zwingend selbst wertvoll; wird sein Risiko allein an seiner
+eigenen Funktion bemessen, bleibt der Weg, den er eröffnet, unentdeckt.
+
+Eine besondere Rolle nimmt dabei der \emph{Domain-Controller} ein, also der
+Verzeichnisdienst, an dem sich die Systeme einer Windows-Domäne anmelden. Seine
+Domänendatenbank enthält die Passwort-Hashes sämtlicher Domänenkonten, und deren
+Auslesen ist als eigene Angriffstechnik dokumentiert~\cite{mitreattack_ntds}.
+Ein Hash ist dabei noch kein Passwort: Er lässt sich offline durch
+systematisches Ausprobieren einem Passwort zuordnen oder, je nach
+Anmeldeverfahren, unmittelbar an dessen Stelle vorlegen. Wer den
+Domain-Controller übernimmt, verfügt damit über die Anmeldeinformationen des
+gesamten Netzes.
+
+Der \emph{Verteidiger} verfolgt das Gegenziel und verfügt dafür über Maßnahmen,
+die sich in zwei Gruppen einteilen lassen. \emph{Wiederherstellende} Maßnahmen
+machen eine bereits eingetretene Kompromittierung rückgängig; das
+\emph{Neuaufsetzen} eines Hosts, auch \emph{Reimaging} genannt, entzieht dem
+Angreifer den Zugang zu diesem System. \emph{Präventive} Maßnahmen verhindern
+einen Zugriff, bevor er stattfindet, etwa indem der eingehende Verkehr zu einem
+gefährdeten System gesperrt wird.
+
+Weder wiederherstellende noch präventive Maßnahmen sind kostenlos, und darin
+liegt der eigentliche Zielkonflikt der Verteidigung. Ein neu aufgesetzter Host steht während des Vorgangs nicht zur
+Verfügung, ein gesperrter Dienst ist auch für berechtigte Nutzer nicht mehr
+erreichbar. Wie viel Ausfall hinnehmbar ist, wird als \emph{Verfügbarkeit}
+gemessen und üblicherweise in einem \ac{SLA} festgeschrieben. Ein Verteidiger,
+der das Netz vollständig abschaltet, hat zwar jeden Angriff unterbunden, aber
+seine Aufgabe verfehlt.
+
+\subsection{Netzwerktopologie als Sicherheitsarchitektur}
+\label{sec:topologien}
+
+Der Begriff Topologie wird uneinheitlich verwendet und bedarf daher einer
+Festlegung. In dieser Arbeit bezeichnet er die Sicherheitsarchitektur eines
+Netzes, also den Verlauf der Vertrauensgrenzen und die Frage, welche Systeme
+miteinander kommunizieren dürfen. Gemeint ist ausdrücklich nicht die physische
+Verkabelung: Graphentheoretische Muster wie Bus, Ring oder Stern beschreiben die
+Verdrahtung von Geräten und liegen auf einer anderen Abstraktionsebene.
+
+Der Grund für diese Festlegung liegt darin, dass die Verkabelung nichts darüber
+aussagt, wer worauf zugreifen darf. Zwei Systeme am selben Switch können durch
+Zugriffsregeln vollständig voneinander getrennt sein, während zwei Systeme an
+entgegengesetzten Enden eines Gebäudes uneingeschränkt miteinander
+kommunizieren. Für einen Angreifer, der sich lateral bewegt, ist allein
+maßgeblich, welche Zugriffe zugelassen sind.
+
+Die Zero-Trust-Architektur des \ac{NIST} verlagert den Maßstab in dieselbe
+Richtung, von der Lage eines Systems auf die für es geltenden Regeln.
+Ihr zweiter Grundsatz lautet, dass die Position im Netz für sich genommen kein
+Vertrauen begründet; die zugehörigen Annahmen halten fest, dass das gesamte
+private Unternehmensnetz nicht als implizite Vertrauenszone gelten
+darf~\cite[Abschn.~2.1--2.2]{nist800207}. Über einen Zugriff entscheidet danach
+nicht die Zugehörigkeit zu einem Netzabschnitt, sondern eine ausdrückliche
+Regel. Damit ist die Ebene benannt, auf der diese Arbeit den Topologiebegriff
+ansiedelt: die der zugelassenen Kommunikationsbeziehungen.
+
+Das Mittel dazu ist die \emph{Segmentierung}. Sie unterbindet nicht benötigte
+Kommunikationspfade und erschwert damit genau die laterale Bewegung aus
+\Cref{sec:angreifer-verteidiger}: Ein Angreifer, der einen Host übernommen hat,
+erreicht von dort aus weniger Systeme, als er es in einem unsegmentierten Netz
+täte. Genau darin unterscheiden sich die im folgenden Abschnitt beschriebenen
+Muster.
+
+\subsection{Segmentierungsmuster}
+\label{sec:segmentierungsmuster}
+
+Die gebräuchlichen Muster lassen sich als Spektrum auffassen, das vom
+unsegmentierten Netz bis zur feingranularen Trennung einzelner Systeme reicht.
+Vier davon werden in dieser Arbeit verglichen; ihre konkrete Umsetzung
+beschreibt \Cref{sec:topomodell}.
+
+\paragraph{Flach.}
+Ein flaches Netz kennt keine interne Segmentierung. Alle Hosts liegen in
+derselben Vertrauenszone, jeder erreicht jeden. Das ist der Ausgangszustand, den
+die Zero-Trust-Literatur als Risiko benennt: Ein einziger kompromittierter Host
+genügt, um sich frei im gesamten Netz zu bewegen~\cite{nist800207}.
+
+\paragraph{DMZ.}
+Die \ac{DMZ} führt eine grobe Zonentrennung ein. Von außen erreichbare Dienste
+stehen in einer entmilitarisierten Zone, die per Firewall vom internen Netz
+getrennt ist~\cite{nist800041}. Der Perimeter ist damit befestigt, das Innere
+bleibt aber vergleichsweise offen. Für einen Angreifer bedeutet das eine Hürde
+beim Übertritt in das Intranet, danach jedoch vergleichsweise freie Bewegung.
+
+\paragraph{Hub-and-Spoke.}
+Das Hub-and-Spoke-Modell fällt aus der Reihe, weil es nicht mit Zonen arbeitet,
+sondern sämtliche Zugriffe über einen einzigen Knoten führt. Als
+Referenzarchitektur ist es dadurch gekennzeichnet, dass die Verbindungen nicht
+transitiv sind: Jeder Spoke ist mit dem Hub verbunden, kein Spoke mit einem
+anderen. Die Arbeitslasten der Spokes sind damit voneinander getrennt, während
+die zentrale Zugriffskontrolle im Hub liegt~\cite{mshubspoke}. Der Hub ist
+damit ein Chokepoint im Sinne von \Cref{sec:angreifer-verteidiger}, und zwar
+ein baulich erzwungener: Er entsteht nicht dadurch, dass ein Angreifer diesen
+Weg wählt, sondern dadurch, dass kein anderer existiert.
+
+Der Begriff selbst stammt aus der Praxis der Netzarchitektur und ist in keinem
+Standard normiert, das zugrunde liegende Prinzip ist es sehr wohl: \ac{NIST}
+verlangt für eine Zero-Trust-Architektur, dass Ressourcen ohne Passieren eines
+Kontrollpunkts nicht erreichbar sind~\cite[Abschn.~3.4.1]{nist800207}.
+Hub-and-Spoke ist die bauliche Umsetzung dieses Gedankens: ein einziger Punkt,
+an dem jeder Weg vorbeiführt.
+
+Der Preis des Musters ist eine ausgeprägte Abhängigkeit, denn die Trennung der
+Spokes ruht vollständig auf diesem einen Punkt. Geht die Kontrolle über ihn
+verloren, entfällt sie ersatzlos. Realisiert wird der Hub deshalb üblicherweise
+nicht durch ein Endsystem, sondern durch ein eigens dafür vorgesehenes und
+entsprechend gehärtetes Gerät.
+
+\paragraph{Micro-Segmentierung.}
+Micro-Segmentierung treibt die Trennung auf die Ebene einzelner Systeme. Erlaubt
+ist nur, was explizit nötig ist, und jede Verbindung wird verifiziert. Das
+entspricht dem Zero-Trust-Prinzip~\cite{nist800207}. Über die Erreichbarkeit
+hinaus betrifft der Grundsatz auch die Zugangsdaten: Zugriffe sollen je Sitzung
+geprüft werden, statt dauerhaft gültige Berechtigungen auf den Systemen
+vorzuhalten~\cite[Abschn.~2.1]{nist800207}. Beides zusammen verkürzt die Wege
+eines Angreifers nicht, sondern verlängert sie, weil er für jeden Schritt sowohl
+einen zugelassenen Pfad als auch die passenden Zugangsdaten benötigt.
+
+\section{Stand der Forschung}
+\label{sec:sota}
+
+Dieser Abschnitt ordnet die Arbeit in die vorhandene Literatur ein. Er
+stellt die verfügbaren Simulationsumgebungen für Netzwerkangriffe vor,
+prüft, inwieweit sie einen lernenden Verteidiger vorsehen, und beschreibt
+mit MARLon die Erweiterung, auf der der eigene Aufbau beruht.
+
+\subsection{Simulationsumgebungen für Netzwerkangriffe}
+\label{sec:umgebungen}
+
+Ein \ac{RL}-Agent lernt aus Erfahrung und benötigt dafür nach
+\Cref{sec:rl-schwierigkeiten} sehr viele Episoden. In einem produktiven
+Firmennetz ist das weder praktikabel noch verantwortbar. Das Training findet
+deshalb in einer eigens gebauten Umgebung statt, die die für laterale Bewegung
+wesentlichen Mechanismen nachbildet, ohne ein reales Netz in allen Details zu
+kopieren. Einen Überblick über \ac{RL}-Verfahren in der Cybersicherheit
+insgesamt geben Nguyen und Reddi~\cite{nguyen2023drl}.
+
+Solche Umgebungen unterscheiden sich vor allem entlang einer Achse. Eine
+\emph{Simulation} bildet das Netz als abstraktes Modell im Programm nach; ein
+Schritt kostet dann nur die Rechenzeit für eine Zustandsänderung. Eine
+\emph{Emulation} betreibt stattdessen echte Systeme, etwa virtuelle Maschinen
+mit realer Netzanbindung, sodass ein Schritt tatsächlich ausgeführt wird. Die
+Emulation ist wirklichkeitsnäher, die Simulation um Größenordnungen schneller.
+
+\paragraph{CyberBattleSim.}
+\ac{CBS}~\cite{cyberbattlesim2021} ist eine Simulation von Microsoft. Sie bildet
+ein Netzwerk als gerichteten Graphen ab; jeder Knoten steht für einen Host mit
+Diensten, Schwachstellen und einer Firewall-Konfiguration. Der Angreifer beginnt
+nach dem Assumed-Breach-Prinzip auf einem bereits kompromittierten
+Einstiegsknoten. Eine Aktion ist etwa das Ausnutzen einer lokalen oder
+entfernten Schwachstelle oder der Verbindungsaufbau zu einem weiteren Knoten mit
+zuvor erbeuteten Zugangsdaten. Das Netz wird unmittelbar im Programmcode als
+Graph definiert, sodass sich Knoten, Zugangsdaten und Firewall-Regeln gezielt
+setzen lassen. Bereitgestellt wird die Umgebung über die
+\emph{Gym-Schnittstelle}~\cite{cyberbattlesim2021}, die festlegt, wie eine
+Umgebung ihren Zustand zurückgibt und eine Aktion entgegennimmt. Auf derselben
+Schnittstelle setzt auch \ac{SB3} auf~\cite{stablebaselines3}, sodass sich beide
+ohne Anpassung verbinden lassen.
+
+\paragraph{CybORG.}
+CybORG~\cite{standen2021cyborg} verfolgt einen zweigleisigen Ansatz und stellt
+sowohl einen Simulations- als auch einen Emulationsmodus bereit, wobei letzterer
+über eine Cloud-Infrastruktur betrieben wird. Das dokumentierte Szenario umfasst
+drei Hosts in zwei Subnetzen. Die Umgebung ist zugleich der Ausgangspunkt der
+CAGE-Wettbewerbe und damit vor allem auf vergleichbare, vorgegebene
+Aufgabenstellungen ausgelegt.
+
+\paragraph{CyGIL.}
+CyGIL~\cite{li2021cygil} ist eine Emulation, die Aktionen auf tatsächlich
+betriebenen virtuellen Maschinen ausführt. Die dokumentierten Szenarien umfassen
+vier beziehungsweise neun Hosts. Der Preis der Wirklichkeitstreue ist die
+Laufzeit: Nach eigener Messung dauert eine Episode etwa 30 Sekunden im kleineren
+und 20 bis 30 Minuten im größeren Szenario, das Training eines einzelnen Agenten
+entsprechend Stunden bis Tage. Eine spätere Ausbaustufe ergänzt mit CyGIL-S
+einen Simulator, der aus Daten des Emulators erzeugt wird und dessen Betrieb
+damit voraussetzt~\cite{li2023cygilsim}.
+
+\paragraph{Angriffsgraphen als Gegenentwurf.}
+Ein zweiter Zweig der Literatur verzichtet ganz auf eine ausführbare
+Nachbildung des Netzes und fasst stattdessen einen vorab erzeugten
+\emph{Angriffsgraphen} unmittelbar als \ac{MDP} auf, dessen
+Übergangswahrscheinlichkeiten aus Bewertungskennzahlen bekannter Schwachstellen
+stammen~\cite[Abschn.~II.C]{gangupantulu2021cja}. Der Ansatz skaliert auf
+Graphen mit mehreren tausend Knoten, setzt aber voraus, dass sich der Verlauf
+eines Angriffs vorab vollständig niederschreiben lässt, und kennt keinen
+zweiten, gleichzeitig handelnden Agenten.
+
+Welche dieser Umgebungen für die vorliegende Arbeit gewählt wurde und aus
+welchen Gründen, behandelt \Cref{sec:umgebungswahl}.
+
+\subsection{Lernende Agenten auf beiden Seiten}
+\label{sec:beidseitig}
+
+Ein Merkmal zieht sich durch die genannten Arbeiten: Trainiert wird
+üblicherweise der Angreifer. Der Verteidiger ist, sofern überhaupt vorhanden,
+eine feste regelbasierte Komponente.
+
+CybORG erprobt in seiner Ursprungsfassung einen einzigen angreifenden Agenten
+und führt die für einen lernenden Verteidiger nötigen Aktionen, Sensoren und
+Aktuatoren als ersten Punkt der künftigen Arbeiten
+auf~\cite{standen2021cyborg}. CyGIL ist ausdrücklich nur für das Training von
+Angreifern erprobt~\cite{li2021cygil}; auch die spätere Ausbaustufe sieht zwar
+begrifflich einen verteidigenden Agenten vor, trainiert in sämtlichen
+Experimenten aber weiterhin allein den angreifenden~\cite{li2023cygilsim}. Dieselbe Einschränkung gilt für \ac{CBS}
+selbst, wie die Autoren von CybORG in ihrem Vergleich feststellen: Ein fester
+Verteidiger sei möglich, dessen Training jedoch nicht
+vorgesehen~\cite{standen2021cyborg}.
+
+Für eine Frage nach der \emph{Lerneffizienz eines Verteidigers} ist das die
+entscheidende Lücke, denn sie lässt sich ohne einen zweiten lernenden Agenten
+nicht stellen. Zugleich führt ein solcher Aufbau in die in
+\Cref{sec:rl-schwierigkeiten} genannte Schwierigkeit: Lernen beide Seiten
+gleichzeitig, liegt kein \ac{MDP} mehr vor.
+
+\subsection{MARLon}
+\label{sec:cbs}
+
+MARLon~\cite{marlon} schließt genau diese Lücke für \ac{CBS}. Es erweitert
+die Umgebung um einen zweiten, ebenfalls lernenden Agenten für die Verteidigung;
+beide handeln abwechselnd im selben Netz. Bereitgestellt werden dafür
+Implementierungen von \ac{A2C} und \ac{PPO} aus der Bibliothek
+\ac{SB3}~\cite{stablebaselines3}, jeweils für Angreifer wie Verteidiger.
+
+Der Verteidiger erhält dabei eine an den Angreifer gekoppelte Bewertung, und
+sein Aktionsraum umfasst Maßnahmen wie das Neuaufsetzen eines Knotens sowie das
+Sperren und Freigeben von Verkehr. Die genaue Ausgestaltung dieser Kopplung, die
+sich für die vorliegende Arbeit als folgenreich erwiesen hat, behandelt
+\Cref{sec:marlon-original}.
+
+MARLon ist damit die Grundlage der vorliegenden Arbeit. Welche Anpassungen daran
+nötig waren, beschreibt \Cref{ch:versuchsaufbau}.

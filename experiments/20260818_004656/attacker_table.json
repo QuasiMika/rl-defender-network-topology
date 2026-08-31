@@ -1,0 +1,154 @@
+{
+ "flat": {
+  "chain": {
+   "start": 49.4,
+   "ende": 43.3,
+   "median": 49.4,
+   "n_ep": 106
+  },
+  "flat": {
+   "start": 171.2,
+   "ende": 157.8,
+   "median": 160.7,
+   "n_ep": 95
+  },
+  "hub_and_spoke": {
+   "start": 243.9,
+   "ende": 186.6,
+   "median": 193.2,
+   "n_ep": 71
+  },
+  "dmz": {
+   "start": 175.2,
+   "ende": 167.6,
+   "median": 167.3,
+   "n_ep": 71
+  },
+  "micro_segmented": {
+   "start": 142.1,
+   "ende": 112.5,
+   "median": 116.6,
+   "n_ep": 63
+  },
+  "super": {
+   "start": 113.5,
+   "ende": 107.1,
+   "median": 108.8,
+   "n_ep": 58
+  }
+ },
+ "hub_and_spoke": {
+  "chain": {
+   "start": 25.9,
+   "ende": 27.7,
+   "median": 26.4,
+   "n_ep": 59
+  },
+  "flat": {
+   "start": 127.8,
+   "ende": 126.0,
+   "median": 127.3,
+   "n_ep": 57
+  },
+  "hub_and_spoke": {
+   "start": 443.9,
+   "ende": 211.4,
+   "median": 179.8,
+   "n_ep": 264
+  },
+  "dmz": {
+   "start": 91.0,
+   "ende": 55.4,
+   "median": 88.3,
+   "n_ep": 91
+  },
+  "micro_segmented": {
+   "start": 111.5,
+   "ende": 83.4,
+   "median": 97.5,
+   "n_ep": 63
+  },
+  "super": {
+   "start": 165.8,
+   "ende": 159.1,
+   "median": 162.0,
+   "n_ep": 57
+  }
+ },
+ "dmz": {
+  "chain": {
+   "start": 62.7,
+   "ende": 58.2,
+   "median": 62.1,
+   "n_ep": 60
+  },
+  "flat": {
+   "start": 106.0,
+   "ende": 100.9,
+   "median": 101.9,
+   "n_ep": 62
+  },
+  "hub_and_spoke": {
+   "start": 69.4,
+   "ende": 63.7,
+   "median": 63.1,
+   "n_ep": 60
+  },
+  "dmz": {
+   "start": 1104.5,
+   "ende": 197.9,
+   "median": 387.3,
+   "n_ep": 258
+  },
+  "micro_segmented": {
+   "start": 23.2,
+   "ende": 22.7,
+   "median": 22.2,
+   "n_ep": 58
+  },
+  "super": {
+   "start": 158.6,
+   "ende": 144.4,
+   "median": 143.6,
+   "n_ep": 90
+  }
+ },
+ "micro_segmented": {
+  "chain": {
+   "start": 25.3,
+   "ende": 25.8,
+   "median": 25.9,
+   "n_ep": 57
+  },
+  "flat": {
+   "start": 113.7,
+   "ende": 106.6,
+   "median": 108.7,
+   "n_ep": 59
+  },
+  "hub_and_spoke": {
+   "start": 102.6,
+   "ende": 73.9,
+   "median": 87.5,
+   "n_ep": 61
+  },
+  "dmz": {
+   "start": 74.4,
+   "ende": 59.3,
+   "median": 65.2,
+   "n_ep": 74
+  },
+  "micro_segmented": {
+   "start": 229.3,
+   "ende": 216.5,
+   "median": 194.4,
+   "n_ep": 82
+  },
+  "super": {
+   "start": 162.7,
+   "ende": 156.6,
+   "median": 161.1,
+   "n_ep": 58
+  }
+ }
+}

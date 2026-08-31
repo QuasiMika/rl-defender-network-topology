@@ -1,0 +1,34 @@
+% AUTOMATISCH ERZEUGT von gen_topologie_figuren.py -- nicht von Hand aendern.
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[topofig, scale=0.95]
+  \node[entrynode] (WebServer) at (0.0,3.1) {WebServer\\[-1pt]{\tiny 0\,P \textbar\ --}};
+  \node[netnode] (Workstation1) at (10.8,6.0) {WS1\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (Workstation2) at (10.8,4.6) {WS2\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (Workstation3) at (10.8,3.2) {WS3\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (MailServer) at (3.6,4.4) {MailServer\\[-1pt]{\tiny 15\,P \textbar\ HTTPS}};
+  \node[netnode] (FileServer) at (10.8,1.8) {FileServer\\[-1pt]{\tiny 20\,P \textbar\ SMB}};
+  \node[netnode] (AppServer) at (3.6,1.8) {AppServer\\[-1pt]{\tiny 15\,P \textbar\ HTTP}};
+  \node[netnode] (BackupServer) at (10.8,0.4) {BackupServer\\[-1pt]{\tiny 25\,P \textbar\ SMB}};
+  \node[dcnode] (DomainController) at (7.2,4.4) {DomainCtrl\\[-1pt]{\tiny 30\,P \textbar\ RDP}};
+  \node[cjnode] (DatabaseServer) at (7.2,1.8) {DatenbankSrv\\[-1pt]{\tiny 100\,P \textbar\ SQL}};
+  \draw[reach] (WebServer) -- (MailServer);
+  \draw[reach] (WebServer) -- (AppServer);
+  \draw[reach] (MailServer) -- (DomainController);
+  \draw[reach] (AppServer) -- (DatabaseServer);
+  \draw[reach] (AppServer) -- (DomainController);
+  \draw[reach] (DomainController) -- (Workstation1);
+  \draw[reach] (DomainController) -- (Workstation2);
+  \draw[reach] (DomainController) -- (Workstation3);
+  \draw[reach] (DomainController) -- (FileServer);
+  \draw[reach] (DomainController) -- (BackupServer);
+  \draw[reach] (DomainController) -- (DatabaseServer);
+  \draw[reach] (FileServer) -- (BackupServer);
+  \draw[cred] (WebServer) to[bend right=14] (MailServer);
+  \draw[cred] (WebServer) to[bend right=14] (AppServer);
+  \draw[cred] (MailServer) to[bend right=14] (DomainController);
+  \draw[cred] (AppServer) to[bend right=14] (DatabaseServer);
+  \draw[cred] (AppServer) to[bend right=14] (DomainController);
+  \draw[cred] (FileServer) to[bend right=14] (BackupServer);
+  \node[dcbadge, anchor=north] at (7.2,3.7800000000000002) {h\"alt alle Zugangsdaten};
+\end{tikzpicture}
+\end{adjustbox}

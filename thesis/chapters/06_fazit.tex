@@ -1,0 +1,129 @@
+\chapter{Fazit und Ausblick}
+\label{ch:fazit}
+
+Dieses Kapitel fasst die Ergebnisse entlang der drei Teilfragen zusammen
+und leitet daraus eine Empfehlung für die Praxis ab. Der anschließende
+Ausblick benennt die Ansatzpunkte, an denen weitere Arbeiten anknüpfen
+können.
+
+\section{Fazit}
+\label{sec:fazit}
+
+Gegenstand dieser Arbeit war die Frage, wie sich die Netzwerktopologie
+auf RL-trainierte Verteidigungsagenten auswirkt (\Cref{sec:ziel}). 
+Grundlage waren 120 Trainingsläufe über 24 Matchups aus
+vier verteidigten Topologien und sechs Angreifern sowie eine Evaluation mit
+9000 Episoden gegen drei Vergleichsstufen (\Cref{ch:ergebnisse}). Für die drei Teilfragen ergibt sich ein unterschiedliches Bild.
+
+Ein Einfluss der Topologie auf die \emph{Lerngeschwindigkeit} ließ
+sich nicht nachweisen. Alle 120 Läufe erfüllen das Konvergenzkriterium, im Median
+in Episode~42, und die Mediane der vier Topologien liegen mit 41 bis 42,5 so
+dicht beieinander, dass sich darauf keine Aussage stützen lässt
+(\Cref{sec:konvergenzergebnis}). Das gilt auch für das nachträglich
+entworfene Alternativmaß; bei fünf Seeds je Zelle bleibt ein etwaiger
+Unterschied unterhalb der Nachweisgrenze (\Cref{sec:limitationen}). Sichtbar
+wurde stattdessen eine Eigenschaft der Matchups: Gegen den
+Angreifer, der auf der verteidigten Topologie trainiert wurde, dauert
+es fast durchweg am längsten, bis ein Lauf konvergiert.
+
+Deutlich trennt die Topologie dagegen das \emph{erreichte Ergebnis}. Das
+Training wirkt zunächst überall: Der Restanteil des trainierten Modells
+liegt in jeder der 24 Zellen unter dem des Zufallsverteidigers
+(\Cref{sec:wirksamkeitergebnis}). Wie viel dem Angreifer dennoch gelingt,
+bestimmt maßgeblich die Struktur: Mit zunehmender Segmentierung sinkt die
+Crown-Jewel-Quote, vom nahezu ungebremsten Zugriff im vollvermaschten
+\emph{flat} über die beiden teilsegmentierten Topologien, die sich
+untereinander kaum trennen, bis zu \emph{micro\_segmented}, wo der Zugriff
+fast vollständig unterbunden ist. Die Auswertung des Aktionsverhaltens
+liefert dazu den Mechanismus (\Cref{sec:aktionen}): Wo die Struktur
+Engpässe bietet, werden Sperren wirksam; im vollvermaschten Netz weicht
+der Angreifer jeder Sperre aus, und auch dem trainierten Verteidiger
+bleibt kein greifendes Mittel. Die wirksamsten Verteidiger dieser
+Untersuchung sperren kaum, sondern setzen kompromittierte
+Knoten konsequent neu auf (\Cref{sec:rewarddiskussion}). Dieser Befund beruht
+allerdings auf einer Vereinfachung der Simulation: Der Verteidiger kennt
+dort den Zustand jedes Knotens exakt und kann gezielt neu aufsetzen. In einem realen Netz
+ist gerade das ungewiss; dort wäre vermutlich die Sperre die naheliegende erste Maßnahme und
+das Wiederherstellen aus einem Backup die zweite.
+
+Neben der verteidigten Topologie prägt auch die \emph{Herkunft des
+Angreifers} das Ergebnis (\Cref{sec:angreiferherkunft}). Der auf der verteidigten Topologie
+trainierte Angreifer beginnt um den Faktor 1,3 bis 4 stärker als jeder
+andere und beschreibt damit den ungünstigsten Fall, den ein Verteidiger zu
+erwarten hat. Der über alle Topologien gestuft
+trainierte Generalist ist den Spezialisten fast überall unterlegen; nur in
+\emph{micro\_segmented} kommt er als einziger noch durch, wobei offen
+bleibt, ob dafür die Breite seines Trainings oder dessen letzte Station
+verantwortlich ist.
+
+Neben diesen inhaltlichen Antworten steht ein methodisches Ergebnis. Der
+Reward allein erwies sich als unzureichendes Maß für
+Verteidigungsleistung: In \emph{micro\_segmented} fällt die
+Crown-Jewel-Quote zwischen Episode~150 und 230 von 38 auf 5~Prozent,
+während sich der Reward kaum noch bewegt (\Cref{sec:cj-verlauf}) -- erst
+die Zielgrößen Crown-Jewel-Quote und gehaltene Knoten machen sichtbar, was
+die Verteidigung tatsächlich leistet. Auch das eigens entworfene
+Konvergenzkriterium trennte die Topologien nicht, weil seine Normierung
+von den extremen Startwerten dominiert wird; beides ist für nachfolgende
+Arbeiten mit \ac{CBS} unmittelbar verwertbar.
+
+Für die Praxis lässt sich daraus -- im Rahmen des Modells und mit den
+Einschränkungen aus \Cref{sec:limitationen} -- eine Richtung ableiten:
+möglichst konsequente Segmentierung. Sie wirkt in dieser Untersuchung
+doppelt. Zum einen begrenzt die Struktur selbst, was ein Angreifer
+überhaupt erreichen kann, noch bevor ein Verteidiger handelt: In
+\emph{micro\_segmented} bleiben ihm nur 145 der 235 Punkte, und den
+DMZ-Angreifer hielt dort bereits der Zufallsverteidiger in jeder Episode
+vom Crown Jewel fern (\Cref{tab:cj-eval}). Zum anderen ist Segmentierung die Voraussetzung
+dafür, dass aktive Verteidigung überhaupt greift: Erst Engpässe machen
+Sperren treffsicher, während im flachen Netz selbst der trainierte Agent
+das wertvollste System praktisch nie schützen konnte. Einem Unternehmen,
+das automatisierte Abwehr einsetzen will, wäre demnach zu raten, die
+Topologie nicht als gegebene Randbedingung zu behandeln, sondern als
+ersten Teil der Verteidigung -- die Struktur dämmt den Angreifer ein,
+bevor der erste Agent eine Aktion wählt.
+
+\section{Ausblick}
+\label{sec:ausblick}
+
+Die größte Einzeleinschränkung dieser Arbeit ist der eingefrorene
+Angreifer: Die gemessene Wirksamkeit gilt gegen ein festes Verhalten, auf
+das sich der Verteidiger ungestört einspielen konnte
+(\Cref{sec:limitationen}). Zwei Erweiterungen lägen nahe: zunächst
+Angreifer, die gegen einen zufällig handelnden Verteidiger trainiert
+wurden und Gegenwehr damit überhaupt kennen, und darauf aufbauend ein
+Versuch, in dem beide Agenten von null an gleichzeitig lernen. Erst dort
+zeigt sich, ob die Neutralisierung des passgenauen Angreifers Bestand hat
+oder ob der Einfluss der Angreiferherkunft gegen einen ausweichenden
+Gegner wächst.
+
+Am gestuften Training des Generalisten blieb unentschieden, ob seine
+Stärke auf \emph{micro\_segmented} Breite oder Aktualität ist. Läufe mit
+permutierter Stationenfolge würden beides trennen; ergänzend ließe sich
+eine Effektivitätsmatrix eingefrorener Angreifer gegen eingefrorene
+Verteidiger aller Stationen aufnehmen. Ebenso stehen die in
+\Cref{sec:limitationen} benannten Entwurfsprüfungen aus: eine systematisch
+variierte Abwehrbonusrate, der Vergleich port- gegen knotenweiser Sperren,
+ein Lauf ohne Sperren in \emph{flat} sowie eine ausdrückliche
+Nichtstun-Aktion beziehungsweise ein Action-Masking. Ob die ungültigen
+Aktionen, zuletzt 62~Prozent aller Verteidigeraktionen, tatsächlich
+gewollte Untätigkeit sind oder der Agent schlicht nicht gelernt hat,
+welche Aktionen gültig sind, ließe sich erst damit unterscheiden.
+
+Die statistische Basis ließe sich mit mehr Seeds je Zelle und
+Konfidenzbereichen verbreitern, wie von Henderson et~al.\
+empfohlen~\cite{henderson2019deepreinforcementlearningmatters}; kleinere
+Unterschiede zwischen den segmentierten Topologien wären erst damit
+aussagekräftig. Für die Lerngeschwindigkeit fehlt zudem weiterhin ein
+Maß, das späte Verbesserungen von früher Ruhe trennt; die in
+\Cref{sec:limitationen} vorgeschlagene 90-Prozent-Marke wäre ein
+Ausgangspunkt.
+
+Schließlich bleibt die Übertragung. \ac{CBS} abstrahiert von
+Zeitverhalten, Erkennungsunsicherheit und unvollständiger Sicht des
+Verteidigers; die hier gefundene Rangfolge der Topologien ist eine Aussage
+über dieses Modell. Größere und heterogenere Netze, eine Sterntopologie
+mit gehärtetem, nicht übernehmbarem Zentrum sowie Umgebungen mit
+Teilbeobachtbarkeit würden zeigen, ob der doppelte Nutzen der
+Segmentierung auch dort trägt, wo reale Netze weniger ideal geschnitten
+sind.

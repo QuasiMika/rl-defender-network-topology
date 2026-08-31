@@ -1,0 +1,8 @@
+{
+  "attacker": "/home/mika/projects/CBS_MARLon/experiments/20260818_004656/attackers/super/stage5_micro_segmented/ppo_attacker_CyberBattleMicroSeg_thesis_v0_20260818_033237_674229.zip",
+  "defender": null,
+  "csv": "/home/mika/projects/CBS_MARLon/experiments/20260818_004656/attackers/super/stage5_micro_segmented/training_log_CyberBattleMicroSeg_thesis_v0_20260818_033237_674229.csv",
+  "run_id": "CyberBattleMicroSeg_thesis_v0_20260818_033237_674229",
+  "env_id": "CyberBattleMicroSeg-thesis-v0",
+  "total_timesteps": 500000
+}

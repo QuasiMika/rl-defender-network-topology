@@ -1,0 +1,8 @@
+{
+  "attacker": "/home/mika/projects/CBS_MARLon/experiments/20260820_005936/attackers/super/stage4_dmz/ppo_attacker_CyberBattleDMZ_thesis_v0_20260820_032255_998749.zip",
+  "defender": null,
+  "csv": "/home/mika/projects/CBS_MARLon/experiments/20260820_005936/attackers/super/stage4_dmz/training_log_CyberBattleDMZ_thesis_v0_20260820_032255_998749.csv",
+  "run_id": "CyberBattleDMZ_thesis_v0_20260820_032255_998749",
+  "env_id": "CyberBattleDMZ-thesis-v0",
+  "total_timesteps": 500000
+}

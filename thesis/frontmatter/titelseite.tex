@@ -1,0 +1,69 @@
+
+\begin{titlepage}
+\newgeometry{hscale=0.81,vscale=0.8}
+
+% Kein Erstzeileneinzug auf dem Titelblatt. Sonst ruecken nur die ERSTEN
+% Zeilen der Absaetze ein und Umbruchzeilen wie "Fakultaet Informatik"
+% stehen buendig links, was unsauber aussieht.
+\setlength{\parindent}{0pt}
+
+\AddToShipoutPicture*{\BackgroundImgTitelPage}
+
+\vspace*{12\bigskipamount}
+
+%% Titelblock in HTWG-Petrol auf weissem Grund.
+{\makeatletter
+\fboxsep=0pt
+\colorbox{htwg-white}{\begin{minipage}[t]{145mm}
+    \begin{flushleft}
+        \color{htwg-teal}\Huge{\@report@typetext}
+        \\
+        \color{htwg-teal}\Huge\textbf{\@title}
+    \end{flushleft}
+\end{minipage}}
+\makeatother}
+
+\bigskip
+\bigskip
+
+vorgelegt von
+
+\bigskip
+
+{\makeatletter
+\Large\bfseries\@author
+\makeatother}
+
+\vfill
+
+zur Erlangung des akademischen Grades
+
+\bigskip
+
+{\bfseries Bachelor of Science}
+
+im Studiengang \studiengang
+
+\bigskip
+
+an der Hochschule Konstanz Technik, Wirtschaft und Gestaltung,\\
+Fakultät Informatik
+
+\vfill
+
+\begingroup
+\renewcommand*{\arraystretch}{1}
+\rowcolors{2}{white}{white}
+{\makeatletter
+\begin{tabular}{@{}ll}
+    Matrikelnummer:      & \@student@number \\ \\
+    Abgabedatum:         & \abgabedatum \\ \\
+    Erstgutachter\slash in:  & \textbf{\erstgutachter} \\
+    Zweitgutachter\slash in: & \textbf{\zweitgutachter}
+\end{tabular}
+\makeatother}
+\endgroup
+
+%% Seitenraender wieder auf den Satzspiegel des Fliesstexts zuruecksetzen.
+\newgeometry{hscale=0.7,vscale=0.8}
+\end{titlepage}

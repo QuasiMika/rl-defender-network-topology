@@ -1,0 +1,101 @@
+\chapter{Einleitung}
+\label{ch:einleitung}
+
+Dieses Kapitel führt in das Thema ein. Es beschreibt zunächst, wie sich
+der Einsatz künstlicher Intelligenz auf beiden Seiten eines Angriffs
+auswirkt und welche Frage daraus für die Gestaltung von Netzen folgt,
+leitet daraus Ziel und Forschungsfrage ab und beschreibt abschließend den
+Aufbau der Arbeit.
+
+\section{Motivation und Problemstellung}
+\label{sec:motivation}
+
+\ac{KI} ist in der Cybersicherheit auf beiden Seiten
+angekommen. Angreifer setzen generative Modelle ein, um Phishing zu
+skalieren, Schadcode schneller zu entwickeln und Social Engineering
+überzeugender zu machen; die KI-gestützte Angriffsaktivität nahm binnen
+eines Jahres um 89~Prozent zu, und vom ersten Zugriff bis zum Übergriff
+auf weitere Systeme vergehen im Durchschnitt weniger als dreißig
+Minuten~\cite{crowdstrike2026gtr}. Verteidiger nutzen \ac{KI} ihrerseits,
+um Telemetrie auszuwerten, Anomalien zu erkennen und Reaktionszeiten zu
+verkürzen~\cite{xforce2026}. An den Grundlagen der Angriffe ändert das wenig, denn ausgenutzt werden
+weiterhin ungepatchte Lücken, gültige Zugangsdaten und
+Fehlkonfigurationen. Verändert haben sich Geschwindigkeit und
+Anpassungsfähigkeit. Angreifer, die ihre Taktik in Echtzeit an veränderte
+Bedingungen anpassen, setzen Verteidigungen unter Druck, die auf festen
+Regeln und Signaturen beruhen~\cite{xforce2026}.
+
+Damit stellt sich die Frage, ob nicht auch die Verteidigung selbst lernen
+sollte. \ac{RL} ist dafür ein naheliegender Kandidat: Dabei lernt ein
+eigenständig handelndes Programm, ein sogenannter \emph{Agent}, sein
+Verhalten aus den Folgen seiner Handlungen statt aus vorgegebenen Regeln und
+muss deshalb nicht auf jede Angriffsvariante vorab vorbereitet
+werden~\cite{nguyen2023drl}. Mit Simulationsumgebungen wie
+Microsofts \ac{CBS}~\cite{cyberbattlesim2021} oder
+CybORG~\cite{standen2021cyborg} stehen dafür Trainingsplätze bereit, und
+Erweiterungen wie MARLon~\cite{marlon} stellen dem lernenden Angreifer
+einen lernenden Verteidiger gegenüber.
+
+Der Blick dieser Forschung richtet sich bislang vor allem auf die Agenten:
+auf Algorithmen, Beobachtungsräume und Belohnungsfunktionen. Die Umgebung, in der gelernt wird, bleibt dabei meist eine feste
+Randbedingung, das gilt insbesondere für die Struktur des
+verteidigten Netzes. In der Praxis gilt
+jedoch gerade diese Struktur als tragender Teil der Verteidigung:
+Segmentierung bis hin zur Mikrosegmentierung ist ein Grundpfeiler
+moderner Sicherheitsarchitekturen~\cite{nist800207}. Ob sich dieser Praxisgrundsatz im Verhalten lernender Verteidiger
+niederschlägt, ob ein Agent in einem segmentierten Netz also schneller
+lernt und wirksamer verteidigt, ist eine offene Frage. Eine entsprechende Abhängigkeit besteht auf der Gegenseite. Auch der
+Angreifer wird auf einer bestimmten Topologie trainiert. Zu prüfen ist daher,
+ob seine Wirksamkeit davon abhängt, ob die angegriffene Topologie mit seiner
+Trainingstopologie übereinstimmt.
+
+Diese Fragen lassen sich nur in einem Aufbau beantworten, in dem allein
+die Topologie variiert, während Inventar, Knotenwerte und
+Trainingsbudget gleich bleiben, und in dem die Wirksamkeit an Größen
+gemessen wird, die tatsächlich Verteidigungsleistung abbilden. Beides
+erwies sich als eigenständige Aufgabe: Der übernommene Aufbau aus MARLon
+musste dafür an mehreren Stellen umgebaut werden
+(\Cref{ch:versuchsaufbau}).
+
+\section{Zielsetzung und Forschungsfrage}
+\label{sec:ziel}
+
+Diese Arbeit untersucht, wie sich die Netzwerktopologie auf
+Verteidigungsagenten auswirkt, die mit \ac{RL} trainiert werden. Die Fragestellung gliedert sich in drei Teilfragen: wie schnell ein solcher Agent ein stabiles Verhalten
+erreicht, wie wirksam er nach abgeschlossenem Training den Angriff
+eindämmt, und welchen Einfluss darauf die Topologie hat, auf der der
+Angreifer trainiert wurde. Die zentrale Forschungsfrage lautet:
+\begin{quote}
+  \textit{Wie beeinflusst die Topologie des verteidigten Netzes das
+  Training und die Wirksamkeit eines mit Reinforcement Learning
+  trainierten Verteidigungsagenten, und welchen Anteil an diesem Einfluss
+  hat die Topologie, auf der der Angreifer trainiert wurde?}
+\end{quote}
+Der zur Beantwortung entworfene Versuchsaufbau ist Gegenstand von
+\Cref{ch:versuchsaufbau}.
+
+\section{Aufbau der Arbeit}
+\label{sec:aufbau}
+
+\Cref{ch:grundlagen} legt die Grundlagen. Beschrieben werden das \ac{RL}
+und das eingesetzte Verfahren \ac{PPO}, die Grundbegriffe der
+Netzwerksicherheit samt den Prinzipien der Netzsegmentierung sowie der Stand
+der Forschung zu Simulationsumgebungen für Netzwerkangriffe, aus dem die Wahl
+von \ac{CBS} mit der MARLon-Erweiterung hervorgeht.
+
+\Cref{ch:versuchsaufbau} beschreibt den Versuchsaufbau. Dazu gehören die vier
+verglichenen Topologien, der Umbau von Aktionsraum und Belohnungsfunktion
+gegenüber dem übernommenen Rahmenwerk, die beiden Trainingsphasen, die
+erhobenen Zielgrößen und das Konvergenzkriterium sowie der Ablauf der
+abschließenden Evaluation.
+
+\Cref{ch:ergebnisse} stellt die Ergebnisse dar und ordnet sie unmittelbar
+ein. Auf ein eigenes Diskussionskapitel wird bewusst verzichtet, damit Befund,
+Deutung und die zugehörigen Tabellen und Abbildungen an derselben Stelle
+stehen. Ein abschließender Abschnitt benennt die Grenzen der Aussagekraft.
+
+\Cref{ch:fazit} beantwortet die Forschungsfrage entlang der drei Teilfragen,
+leitet daraus eine Empfehlung für die Praxis ab und benennt Ansatzpunkte für
+Anschlussarbeiten. Der Anhang enthält die Hyperparameter sowie die
+vollständigen Verläufe aller 24 Kombinationen, die \Cref{ch:ergebnisse} nur
+ausschnittweise wiedergibt.

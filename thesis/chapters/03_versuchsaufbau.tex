@@ -1,0 +1,1371 @@
+\chapter{Versuchsaufbau}
+\label{ch:versuchsaufbau}
+
+Untersucht wird, ob und wie stark die Netzwerktopologie beeinflusst und wie
+schnell und wie gut ein Verteidigungsagent lernt. Die Topologie ist die
+unabhängige Variable, jedoch nicht der einzige variierte Faktor: Der
+Verteidiger trainiert stets gegen einen bestimmten eingefrorenen Angreifer.
+Ob und in welchem Umfang dessen Herkunft die Aufgabe beeinflusst, ist offen und
+selbst Teil der Untersuchung. Beide Größen werden deshalb systematisch
+gekreuzt, sodass sich ihre Beiträge trennen lassen (\Cref{sec:phasen}).
+
+Alles Übrige muss konstant gehalten werden, sonst lassen sich beobachtete
+Unterschiede nicht mehr zuordnen. Bevor dieser Aufbau im Einzelnen beschrieben
+wird, ist jedoch ein Umweg nötig: Der hier verwendete Reward und Aktionsraum
+sind nicht die von MARLon übernommenen, sondern eine eigene Überarbeitung.
+\Cref{sec:vorarbeiten} begründet, warum diese Überarbeitung nötig wurde.
+
+\section{Von MARLon zum eigenen Aufbau}
+\label{sec:vorarbeiten}
+
+Dieser Abschnitt beschreibt, wie aus dem übernommenen Rahmenwerk der in
+dieser Arbeit verwendete Aufbau wurde. Er benennt zunächst den geerbten
+Ausgangspunkt, schildert dann einen vollständigen Durchgang durch die
+Versuchsmatrix und die drei Fehler, die dieser sichtbar machte, und begründet
+daraus die anschließende Überarbeitung.
+
+\subsection{Der geerbte Ausgangspunkt}
+\label{sec:marlon-original}
+
+MARLon~\autocite{marlon} stellt die Trainingsumgebung für beide Agenten
+bereit, wie in \Cref{sec:cbs} beschrieben. Für den Verteidiger legt die
+Originalarbeit dabei eine bestimmte Reward-Struktur fest: Sein Reward ergibt
+sich durch Negation des jeweils letzten Angreifer-Rewards, ergänzt um eine
+große Strafe bei Unterschreiten der Netzverfügbarkeit. Die Autoren begründen
+diese Wahl damit, dass der Verteidiger den Fortschritt des Angreifers
+minimieren solle, und halten als unmittelbare Folge fest, dass sein maximal
+erreichbarer Reward damit bei null liegt und mit jedem Fortschritt des
+Angreifers weiter sinkt~\autocite{marlon}. Prävention ist in dieser Formel nicht vorgesehen, und einen Anreiz zur
+Rückeroberung enthält sie ebenso wenig: \ac{CBS} schreibt den Knotenwert nur bei der ersten Übernahme gut, sodass
+ein späterer Besitzwechsel desselben Knotens den Reward beider Seiten
+unverändert lässt. Gefördert wird damit gerade nicht das Verhalten, auf das
+es in dieser Arbeit ankommt: den Angreifer am Vordringen zu hindern und
+bereits verlorene Systeme zurückzugewinnen.
+
+Für den Aktionsraum des Verteidigers sieht MARLon fünf Aktionsarten vor:
+%
+\begin{enumerate}
+  \item einen Knoten neu aufsetzen,
+  \item Verkehr sperren,
+  \item Verkehr freigeben,
+  \item einen Dienst stoppen,
+  \item einen Dienst wieder starten.
+\end{enumerate}
+%
+Port und Richtung sind dabei zusätzliche Parameter, die der Agent selbst
+wählt. Für den Angreifer
+identifiziert die Originalarbeit den Umgang mit ungültigen Aktionen als eigenes
+Problem. Gültig ist eine Aktion, wenn der Angreifer sie im aktuellen Zustand
+überhaupt versuchen kann: Der Ausgangsknoten muss übernommen, das Ziel entdeckt
+und die eingesetzten Zugangsdaten müssen bereits erbeutet sein. Ob der Versuch
+gelingt, entscheidet sich unabhängig davon. Ein Verbindungsversuch auf einen
+Port, auf dem das Ziel keinen Dienst anbietet, ist eine gültige Aktion, die
+lediglich folgenlos bleibt. Eine Bestrafung ungültiger Aktionen würde dazu
+führen, dass der Agent riskante, aber
+notwendige Aktionen ganz meidet; die Autoren entscheiden sich stattdessen für
+Reward~0 bei ungültigen Aktionen, kombiniert mit einer zufälligen
+Ersatzwahl. Diese Entscheidung ist im Code der Umgebung selbst verankert, nicht
+nur im Trainingsablauf.
+
+\subsection{Eigene Vorarbeiten und der Referenzlauf}
+\label{sec:referenzlauf}
+
+Dass der Verteidiger damit weder für verhinderte noch für rückgängig
+gemachte Übernahmen etwas erhält, war der Anlass, seinen Reward in mehreren
+Schritten zu überarbeiten. Ein zwischenzeitlicher
+Entwurf war ereignisbasiert und vergütete jedes Neuaufsetzen eines
+kompromittierten Knotens mit einem festen Betrag. Damit belohnte er einen
+beliebig wiederholbaren Vorgang, und
+zwar einseitig: \ac{CBS} schreibt einen Knotenwert nur bei der ersten Übernahme
+gut, sodass dem Angreifer eine Rückeroberung nichts einbrachte, während der
+Verteidiger für jedes Neuaufsetzen desselben Knotens erneut vergütet wurde. Ein
+einzelner Knoten wechselte dadurch fortwährend zwischen kompromittiert und neu
+aufgesetzt, ohne dass sich die Lage im Netz über einen solchen Zyklus hinweg
+verändert hätte, und der Verteidiger wurde für jede Runde erneut belohnt. Das ist genau
+der in \Cref{sec:rl-schwierigkeiten} beschriebene Fall, in dem ein Agent formal
+korrekt maximiert und inhaltlich nichts erreicht. Daraufhin wurde zur Kopplung
+aus \Cref{sec:marlon-original} zurückgekehrt, die MARLon ursprünglich vorsieht.
+
+Über diese Kopplung hinaus umfasste der Aufbau zu diesem Zeitpunkt vier
+eigene Ergänzungen:
+%
+\begin{enumerate}
+  \item vier Vergleichstopologien anstelle des einen von MARLon
+        vorgesehenen festen Netzes (\Cref{sec:topomodell}),
+  \item ein Invalid-Action-Masking für den Angreifer nach Huang und
+        Ontañón~\autocite{huang2022masking}, das MARLons
+        Zufallsersatzverfahren ablöst (\Cref{sec:masking}),
+  \item ein Haltebonus je gehaltenem Knoten und Zeitschritt
+        (\Cref{sec:rewards}),
+  \item ein Abzug in Höhe des Knotenwerts, wenn ein gehaltener Knoten neu
+        aufgesetzt wird (\Cref{sec:rewards}).
+\end{enumerate}
+%
+Die zweite Ergänzung verdient eine Erläuterung: Statt eine ungültige Aktion
+zu raten und auf eine zufällige gültige auszuweichen, wählt der Angreifer
+ausschließlich aus der im jeweiligen Zustand gültigen Menge. Wirkungslose
+Aktionen entfielen dadurch praktisch vollständig, und der Angreifer
+erreichte das Crown Jewel zuverlässig, statt wie zuvor nur in
+Ausnahmefällen. Erst das machte ihn als Gegner brauchbar, denn die
+Lerneffizienz eines Verteidigers lässt sich nur gegen einen Angreifer
+messen, der überhaupt etwas ausrichtet.
+
+Von der übernommenen Reward-Struktur blieben damit zwei Bestandteile unberührt,
+und gerade sie bestimmen die erreichbare Obergrenze: die Kopplung des
+Verteidiger-Rewards an den negierten Angreifer-Reward und die Begrenzung des
+Angreifer-Schrittwerts nach unten auf null. Letztere ist in \ac{CBS} selbst
+verankert und wurde bewusst beibehalten; \Cref{sec:rewards} legt dar, weshalb.
+Die eigenen Ergänzungen verschieben den Angreifer-Reward, heben diese
+Obergrenze aber nicht auf.
+
+Auf diesem Stand entstand der im Folgenden als \emph{Referenzlauf} bezeichnete
+Durchgang durch die vollständige Versuchsmatrix. Er ist der Vergleichsmaßstab
+dieser Arbeit: Sein Ergebnis begründet die anschließend vorgenommenen
+Änderungen am Aufbau, und an ihm wird deren Wirkung gemessen. Die Schwächen,
+die die folgenden Abschnitte beschreiben, wurden erst durch ihn sichtbar und
+waren zum Zeitpunkt seiner Durchführung nicht bekannt. Darin unterscheidet er
+sich von den übrigen Zwischenständen des Aufbaus, die nur dort zur Sprache
+kommen, wo sie eine Entwurfsentscheidung erklären. Die Matrix kreuzt die vier
+Verteidigungstopologien mit sechs Angreifern: fünf davon wurden auf jeweils
+genau einer Topologie trainiert, ein sechster nacheinander auf allen. Wegen der
+in \Cref{sec:rl-schwierigkeiten} genannten Stochastik wird jede der
+24~Kombinationen fünfmal wiederholt, jeweils mit einem anderen Startwert für die
+Zufallsgeneratoren, einem sogenannten \emph{Seed}. Das ergibt
+\num{120}~Trainingsläufe.
+
+Als Budget waren dabei je \num{500000} Schritte vorgesehen, ausgeschöpft wurde
+es aber nicht durchgängig: Das Konvergenzkriterium aus \Cref{sec:konvergenz}
+diente im Referenzlauf noch als Abbruchbedingung und beendete das Training,
+sobald es erfüllt war. Für die später berichteten Läufe wurde davon abgerückt;
+\Cref{sec:konvergenz} begründet das. Die vier Ergänzungen sind
+auch im überarbeiteten Aufbau enthalten und werden in den folgenden
+Abschnitten beschrieben; was erst nach dem Referenzlauf hinzukam, ist
+Gegenstand von \Cref{sec:konsequenz}.
+
+Das Ergebnis bestätigte, was \Cref{sec:marlon-original} bereits aus der Formel
+ableitet: In allen \num{8642} protokollierten Trainingsepisoden war der
+Verteidiger-Reward negativ, der höchste beobachtete Einzelwert betrug
+$-14{,}0$. Das ist keine Fehlfunktion, sondern die Obergrenze null, empirisch
+bestätigt. Für eine Metrik, die ursprünglich vorgesehen war, hat das
+unmittelbare Folgen: Break-even, definiert als die Episode, ab der der
+geglättete Reward nicht mehr negativ ist, kann unter dieser Kopplung
+strukturell nie eintreten und entfällt deshalb vollständig
+(\Cref{sec:metriken}).
+
+\subsection{Drei Fehler in der Umsetzung}
+\label{sec:marlon-fehler}
+
+Über die reine Reward-Formel hinaus fanden sich drei Stellen, an denen die
+Sperre als Mittel der Prävention beeinträchtigt war. Sämtliche drei wurden erst
+nach dem Referenzlauf behoben und waren während seiner gesamten Dauer wirksam.
+
+Der erste betrifft die Liste der sperrbaren Ports und ist der eigenen Arbeit
+zuzurechnen. MARLon hält sie fest verdrahtet im Code, passend zu der
+Umgebung, für die das Rahmenwerk entworfen wurde; dort ist sie zutreffend. Mit
+den in \Cref{sec:topomodell} beschriebenen Topologien kamen jedoch andere
+Dienste ins Netz, und die Liste wurde dabei nicht mitgeführt. Von den sechs
+tatsächlich vorkommenden Ports fehlten ihr zwei, während sie zwei weitere
+enthielt, die in keiner der Topologien auftreten. Der Datenbank-, der Backup-
+und der Dateiserver, darunter das Crown Jewel, ließen sich dadurch nie
+ansprechen. Für die späteren Läufe wird die Liste nicht mehr fest vorgegeben,
+sondern aus der Umgebung abgeleitet und folgt damit jeder Topologie.
+
+Die beiden folgenden Punkte stammen dagegen aus dem unveränderten
+MARLon-Code. Sie blieben im Referenzlauf ohne Folgen und wurden erst durch
+die spätere Überarbeitung zum Hindernis; der Vollständigkeit halber gehören sie
+dennoch hierher.
+
+Die Methode zum Sperren von Verkehr entfernte lediglich eine vorhandene
+Freigabe-Regel, statt eine ausdrückliche Sperr-Regel zu setzen. Unterbunden war
+der Verkehr danach tatsächlich, weil \ac{CBS} einen Port ohne Regel als gesperrt
+behandelt. Ein so gesperrter Port sah anschließend jedoch genauso aus wie einer,
+für den nie eine Freigabe bestand, und das ist in den hier verwendeten
+Topologien der bauliche Normalzustand: Sie arbeiten mit Freigabelisten, sodass
+die meisten Ports ohnehin keine Regel tragen. Ein Eingriff des Verteidigers war
+damit nicht mehr von der Ausgangslage zu unterscheiden. Für den Angreifer
+änderte das nichts, denn er stieß in beiden Fällen auf eine geschlossene Tür.
+Sobald jedoch der Reward eine bewusst gesetzte Sperre erkennen und belohnen
+soll, wie in \Cref{sec:rewards} beschrieben, ist die Unterscheidung
+unentbehrlich. Die zugehörige Methode zum Freigeben von Verkehr war zudem
+fehlerhaft: Beide Zweige der Fallunterscheidung schrieben in die eingehende
+Regelliste, sodass sich eine ausgehende Sperre nicht wieder aufheben ließ.
+
+Schließlich zählte die Verfügbarkeitsberechnung nur, ob ein Dienst läuft, nicht
+aber, ob sein Port gesperrt ist. Sperren kostete damit keine Verfügbarkeit. Im
+Referenzlauf fiel auch das nicht ins Gewicht, weil eine Sperre dort ohnehin
+nichts einbrachte. Wird sie dagegen belohnt, entsteht daraus ein Fehlanreiz:
+Der Verteidiger könnte das Netz vollständig abriegeln, ohne dafür je das
+\ac{SLA} zu verletzen.
+
+Für den Referenzlauf bleibt damit vor allem der erste Punkt. Er allein erklärt
+noch nicht, warum der Verteidiger ausschließlich das Neuaufsetzen lernte, denn
+die entscheidende Ursache liegt in der Reward-Formel: Ein verhinderter Zugriff
+bringt dem Angreifer null ein und dem Verteidiger über die Kopplung ebenfalls
+null. Die fehlerhafte Portliste kam hinzu und schloss die wertvollsten Systeme
+von vornherein aus. Und die einzige verbliebene präventive Handlung wurde sogar
+bestraft: Das Stoppen eines Dienstes auf einem nicht kompromittierten Knoten
+kostete zehn Punkte, und da sich nicht vorhersehen lässt, welchen Knoten der
+Angreifer als Nächstes angreift, traf diese Strafe den Verteidiger regelmäßig.
+Von den präventiven Mitteln blieb ihm keines, das sich gelohnt hätte.
+
+\subsection{Konsequenz für diese Arbeit}
+\label{sec:konsequenz}
+
+Aus diesem Befund folgt nicht, dass sich mit der Fragestellung nach dem
+Einfluss der Topologie nichts anfangen ließe. Der Referenzlauf bleibt
+verwertbar, allerdings für eine engere Aussage, als ursprünglich
+beabsichtigt: Er beschreibt einen Verteidiger, der ausschließlich reaktiv
+handeln kann, also Wiederherstellung statt Prävention. Reimaging ist selbst
+eine Form der Abwehr, denn es entzieht dem Angreifer den Zugang und macht
+dessen Gewinn rückgängig, auch wenn es keinen Angriff verhindert.
+
+Für die in dieser Arbeit berichteten Ergebnisse wurde der Aufbau aus zwei Gründen
+grundlegend überarbeitet: Erstens lassen sich die drei in
+\Cref{sec:marlon-fehler} genannten Punkte als Implementierungsfehler und nicht
+als Entwurfsentscheidungen einordnen; sie zu beheben ist unabhängig von der
+Forschungsfrage geboten. Zweitens lässt erst ein Verteidiger, der Prävention
+tatsächlich ausführen und dafür belohnt werden kann, die Frage nach dem
+Einfluss der Topologie auf einen \emph{präventiven} Verteidiger überhaupt
+zu; unter dem Referenzlauf wäre jede Topologie mit derselben Unmöglichkeit
+konfrontiert gewesen. Die folgenden Abschnitte beschreiben den überarbeiteten
+Aufbau, wie er den in \Cref{ch:ergebnisse} berichteten Läufen zugrunde liegt.
+Wo eine Änderung das Ergebnis unmittelbar beeinflusst, wird auf den Referenzlauf
+als Vergleichspunkt zurückverwiesen.
+
+\section{Wahl der Simulationsumgebung und des Lernverfahrens}
+\label{sec:umgebungswahl}
+
+Zwei Entscheidungen liegen dem Versuch zugrunde, bevor sich Fragen seiner
+Ausgestaltung stellen: in welcher Simulationsumgebung er stattfindet und
+mit welchem Lernverfahren die Agenten trainiert werden. Dieser Abschnitt
+begründet beide.
+
+\subsection{Die Simulationsumgebung}
+
+Von den in \Cref{sec:umgebungen} vorgestellten Umgebungen fiel die Wahl auf \ac{CBS} in Verbindung mit MARLon. Maßgeblich dafür sind drei
+Anforderungen, die sich unmittelbar aus der Fragestellung ergeben: eine frei
+definierbare Netzwerktopologie, ein lernender Agent auf beiden Seiten und ein
+Durchsatz, der eine Versuchsmatrix dieses Umfangs erlaubt. Die beiden
+Alternativen scheitern jeweils an mehreren dieser Anforderungen.
+
+Zu beachten ist dabei, dass alle drei Umgebungen fortlaufend weiterentwickelt
+werden. Der folgende Vergleich bezieht sich auf den Stand, den die jeweiligen
+Veröffentlichungen dokumentieren; spätere Erweiterungen sind, soweit sie belegt
+sind, angeführt.
+
+Die erste Anforderung ist die entscheidende, weil sie den Untersuchungsgegenstand
+selbst betrifft. Dass \ac{CBS} das Netz unmittelbar im Programmcode als
+Graph definiert (\Cref{sec:umgebungen}), ermöglicht erst den in
+\Cref{sec:umgebung}
+beschriebenen Aufbau, in dem sich die vier Topologien allein in ihrer
+Segmentierung unterscheiden, während Knotenzahl und Knotenwerte konstant
+bleiben. Die dokumentierten Szenarien der beiden anderen Umgebungen sind
+demgegenüber klein und auf andere Zwecke zugeschnitten. Eine Topologie zu
+verändern bedeutet dort, die zugrunde liegende Infrastruktur umzubauen.
+
+Die zweite Anforderung betrifft die Gegenseite. Der Verteidiger soll sich gegen
+ein Angriffsverhalten behaupten, das seinerseits aus Erfahrung entstanden ist
+und nicht aus einer festen Regel. Wie \Cref{sec:beidseitig} zeigt, ist der
+lernende Verteidiger in beiden Alternativen jedoch nicht umgesetzt. Genau diese
+Lücke schließt MARLon, indem es für beide Rollen \ac{RL}-Agenten bereitstellt.
+
+Die dritte Anforderung ist eine praktische. Die in dieser Arbeit ausgewerteten
+120 Trainingsläufe umfassen zusammen rund 60~Millionen
+Simulationsschritte.
+Rechnet man die für CyGIL dokumentierten Episodendauern
+(\Cref{sec:umgebungen}) auf diesen Umfang hoch, liegt das Ergebnis jenseits
+des für eine Abschlussarbeit verfügbaren Zeitrahmens; der dort ebenfalls
+genannte Simulator CyGIL-S nimmt diese Hürde nicht, weil er den Betrieb des
+Emulators voraussetzt. CybORG bietet zwar
+einen reinen Simulationsmodus, betreibt seinen Emulator jedoch über eine
+Cloud-Infrastruktur~\cite{standen2021cyborg}, was neben dem Zeit- auch einen
+Kostenaufwand nach sich zieht.
+
+Mit der Wahl wird zugleich eine Einschränkung übernommen: Als reine Simulation
+bildet \ac{CBS} keine echten Systeme ab, sodass die Übertragbarkeit der
+Ergebnisse auf reale Netze offenbleibt. Die höhere Wirklichkeitstreue der
+emulationsbasierten Ansätze wäre hier gegen die Zahl der durchführbaren Läufe
+einzutauschen gewesen. Da die Fragestellung auf den \emph{Vergleich} von
+Topologien unter sonst gleichen Bedingungen zielt und nicht auf absolute
+Aussagen über konkrete Netze, wiegt die Zahl der Läufe schwerer.
+\Cref{sec:limitationen} greift diesen Punkt erneut auf.
+
+\subsection{Das Lernverfahren}
+
+MARLon stellt mit \ac{A2C} und \ac{PPO} zwei Verfahren aus \ac{SB3} bereit
+(\Cref{sec:cbs}). Für beide existieren vollständige, parallel gepflegte
+Implementierungen für Angreifer wie Verteidiger, sodass die Wahl offensteht.
+Sie fiel auf \ac{PPO}.
+
+Die in \Cref{sec:ppo} beschriebene Deckelung erzeugt gleichmäßigere
+Lernkurven, da einzelne Ausreißer den bisherigen Lernfortschritt nicht in einem
+Schritt verwerfen können. Betroffen ist davon nicht allein die Darstellung,
+sondern die Messbarkeit: Zu den erhobenen Größen gehört die Lerneffizienz und
+damit der Zeitpunkt, zu dem ein Lauf als konvergiert gilt, und
+das Konvergenzkriterium in \Cref{sec:konvergenz} entscheidet anhand der
+Streuung und des Trends der Episoden-Rewards innerhalb eines Fensters. Ein
+Verfahren, dessen Kurve wiederholt springt, würde dieses Kriterium unabhängig
+von der Topologie später auslösen und die Vergleichbarkeit zwischen den
+Topologien beeinträchtigen. Die stabilere Kurve ist somit Voraussetzung dafür,
+dass die gemessenen Unterschiede der Topologie zugerechnet werden können.
+
+Für den Diskontfaktor aus \Cref{sec:mdp} gilt in dieser Arbeit
+$\gamma = 0{,}99$; ein Reward verliert pro Zeitschritt somit ein Prozent an
+Gewicht. Der Wert wurde nicht eigens gewählt, sondern entspricht dem
+Standardwert von \ac{SB3}~\cite{stablebaselines3} und dem in der
+\ac{PPO}-Literatur gebräuchlichen Ansatz~\cite{schulman2017ppo}. Die übrigen
+Hyperparameter sind in \Cref{sec:hyperparameter} aufgeführt.
+
+\section{Umgebung und Kontrolle der Variablen}
+\label{sec:umgebung}
+
+Jede Topologie besteht aus denselben zehn Knoten mit denselben Werten. Der
+Einstiegsknoten \texttt{WebServer} trägt den Wert~0, die Arbeitsplatzrechner
+je~10, der Mail- und der Applikationsserver je~15, der Dateiserver~20, der
+Backup-Server~25, der Domain Controller~30 und der Datenbankserver als Crown
+Jewel~100. Die Summe dieser Knotenwerte beträgt in jeder Topologie exakt
+235~Punkte.
+
+Das Crown Jewel im Sinne von \Cref{sec:angreifer-verteidiger} ist hier der
+Datenbankserver. Bei ihm laufen die Daten zusammen, auf denen der
+Geschäftsbetrieb beruht, und er vereint sie zugleich an einer einzigen Stelle;
+gerade diese Bündelung macht ihn zum lohnenden Ziel, denn ein einzelner
+erfolgreicher Zugriff genügt, um den gesamten Datenbestand zu entwenden. Alle
+übrigen Systeme sind für einen Angreifer demgegenüber vor allem als
+Zwischenstationen von Interesse. Angenommen wird damit ein Angriff, der auf
+das Entwenden von Daten zielt, die \emph{Exfiltration}; bei einem anderen
+Angreiferziel fiele die Wahl möglicherweise anders aus.
+
+Dass jedem System überhaupt ein einzelner Zahlenwert zugeordnet wird, ist keine
+Eigenheit dieser Simulation, sondern folgt dem Vorgehen der in
+\Cref{sec:angreifer-verteidiger} beschriebenen Crown Jewels Analysis: Dort ist
+die Zuweisung eines Relevanzwerts je IT-System der Kern des Verfahrens, und aus
+diesen Werten ergibt sich anschließend, welche Systeme als besonders
+schützenswert gelten~\cite[Abschn.~II.A]{gangupantulu2021cja}. Die hier
+vergebenen Werte bilden diese Rangfolge nach: Die Produktionsdatenbank trägt
+mit 100~Punkten ein Vielfaches jedes anderen Systems, der Verzeichnisdienst
+folgt mit 30~Punkten als wichtigster Wegbereiter, und die Arbeitsplatzrechner
+bilden mit je 10~Punkten das untere Ende. Der Einstiegsknoten trägt den
+Wert~0, weil sein Besitz dem Angreifer nach dem Assumed-Breach-Prinzip von
+Beginn an zusteht und deshalb keinen Fortschritt darstellt.
+
+Diese Gleichheit ist beabsichtigt: Da Knotenzahl und Knotenwerte identisch
+bleiben, unterscheiden sich die Topologien ausschließlich darin, welche Knoten
+miteinander kommunizieren dürfen und wo die Zugangsdaten liegen. Ein
+Unterschied im Lernverhalten lässt sich somit auf die Struktur zurückführen und
+nicht auf ein lukrativeres Ziel.
+
+Die Knotenwerte sind allerdings nicht der einzige Beitrag zum Reward.
+\Cref{sec:rewards} führt die vollständige Bewertung beider Agenten auf und
+zeigt, dass die erreichbaren Reward-Niveaus zwischen den Topologien erheblich
+auseinanderliegen.
+
+Als Verteidigungsumgebung dienen die vier in \Cref{sec:segmentierungsmuster}
+qualitativ beschriebenen Muster, umgesetzt als \emph{flat},
+\emph{hub\_and\_spoke}, \emph{dmz} und \emph{micro\_segmented}. Hinzu kommt
+\emph{chain}: Diese Topologie dient ausschließlich dem Angreifertraining und
+wird nicht verteidigt.
+
+\subsection{Die Topologien als Zehn-Knoten-Modell}
+\label{sec:topomodell}
+
+Angestrebt ist ein Netz, das ein Leser als Unternehmensnetz wiedererkennt: ein
+von außen erreichbarer Webserver, dahinter Anwendungs-, Mail- und
+Dateidienste, ein Verzeichnisdienst und eine Produktionsdatenbank als
+wertvollstes System. Die Rollen und ihre Beziehungen sind so gewählt, dass die
+Wege zwischen ihnen fachlich begründbar bleiben und nicht bloß eine abstrakte
+Graphenstruktur abbilden.
+
+Diesem Anspruch steht die Vergleichbarkeit gegenüber, und wo beide in Konflikt
+geraten, hat die Vergleichbarkeit Vorrang. Weil dasselbe Inventar aus zehn
+Knoten in allen Topologien gelten muss, lassen sich keine Komponenten
+ergänzen, die nur in einer davon vorkämen. Am deutlichsten zeigt sich das beim
+Hub-and-Spoke-Modell: Wie in \Cref{sec:segmentierungsmuster} beschrieben, wäre
+der Hub in einem realen Netz ein eigens für diese Aufgabe vorgesehenes und
+entsprechend gehärtetes Gerät, das ein Angreifer nicht als Sprungbrett nutzt.
+Ein solcher Knotentyp existiert im Modell nicht, weshalb die Rolle einem der
+vorhandenen Systeme zufällt, nämlich dem Applikationsserver; die Wahl begründet
+die Beschreibung der Topologie weiter unten. Diese Vereinfachung ist bewusst in
+Kauf genommen; ihre Folgen für die Aussagekraft greift \Cref{sec:limitationen}
+auf.
+
+Zum Verständnis der folgenden Abbildungen sind zwei Kantenarten zu
+unterscheiden, weil das Modell beides bewusst trennt. Eine durchgezogene Kante
+bedeutet \emph{Erreichbarkeit}: Die Firewall lässt Verkehr zum Zielknoten zu.
+Eine gestrichelte Kante bedeutet \emph{Besitz von Zugangsdaten}: Auf dem
+Ausgangsknoten sind die Anmeldedaten des Zielknotens hinterlegt.
+
+Beide Kantenarten sind dabei gerichtet und beschreiben ausschließlich, wohin
+sich ein Angreifer bewegen kann. Sie bilden nicht den gesamten Verkehr eines
+Netzes ab. In einem realen Unternehmensnetz greift ein Arbeitsplatzrechner
+selbstverständlich auf Server zu; solche Verbindungen sind hier nur dort
+verzeichnet, wo sie einem Angreifer einen Weg eröffnen. Ein Knoten ohne
+eingehende Kante ist deshalb nicht vom Netz abgeschnitten, sondern für den
+Angreifer schlicht kein mögliches nächstes Ziel.
+
+Beide Bedingungen müssen erfüllt sein, damit ein Knoten übernommen werden kann,
+sie müssen aber nicht von derselben Stelle herrühren. Erbeutete Zugangsdaten
+bleiben dem Angreifer erhalten und lassen sich auch von einem anderen Knoten aus
+einsetzen, sofern von dort ein Pfad zum Ziel führt. Erreichbarkeit und
+Berechtigung können also aus zwei verschiedenen Quellen stammen. Welche
+Verbindungsversuche der Angreifer darüber hinaus überhaupt unternehmen kann,
+schränkt \Cref{sec:mask-reichweite} weiter ein.
+
+Eine Besonderheit gilt für den Domain-Controller: Er hält in jeder Topologie
+die Zugangsdaten sämtlicher Knoten und bildet damit die in
+\Cref{sec:angreifer-verteidiger} beschriebene Rolle eines
+Active-Directory-Servers nach. Wer ihn übernimmt, verfügt über die Zugangsdaten
+zum gesamten Netz; ob er die betreffenden Systeme auch erreicht, entscheidet
+weiterhin die Topologie. Die acht zugehörigen Kanten sind in den Abbildungen
+aus Gründen der Lesbarkeit durch eine Beschriftung ersetzt.
+
+\medskip\noindent\topolegende
+
+\paragraph{flat.}
+Ein flaches Netz kennt keine interne Segmentierung; jeder Knoten erreicht jeden
+anderen (\Cref{fig:topo-flat}). Die fehlende Segmentierung betrifft dabei
+ausschließlich die Erreichbarkeit. Die Zugangsdaten sind auch hier nicht
+beliebig verteilt, sondern folgen der tatsächlichen Nutzung der Systeme. Alle
+drei Arbeitsplätze binden dieselbe Dateiablage ein, denn genau dafür existiert
+ein Dateiserver. Der Webserver spricht als Darstellungsschicht nur mit seinem
+Anwendungs-Backend, und dieses hält seinerseits einen fest konfigurierten
+Datenbankzugang sowie die Anmeldedaten für den Verzeichnisdienst. Mail- und
+Dateiserver melden sich ebenfalls am Verzeichnisdienst an, wie es für
+Dienstkonten üblich ist.
+
+Bewusst nicht abgebildet ist der Fall, dass sich ein privilegiertes Konto an
+einem Endgerät anmeldet und dort verwertbare Anmeldedaten hinterlässt. Kein
+Arbeitsplatz hält Zugangsdaten des Domain-Controllers. Die Modellannahme
+lautet, dass Administration von einem gesonderten Gerät außerhalb dieses
+Inventars erfolgt. Der Weg zum Verzeichnisdienst führt daher ausschließlich
+über die Dienstkonten der Server.
+
+\begin{figure}[H]
+  \centering
+  \input{abbildungen/topologie_flat}
+  \caption[Topologie \emph{flat}]{Topologie \emph{flat}. Die Erreichbarkeit ist
+  vollständig, jeder Knoten erreicht jeden anderen; die 90 gerichteten Kanten
+  sind nicht eingezeichnet. Dargestellt sind daher nur die Zugangsdaten.}
+  \label{fig:topo-flat}
+\end{figure}
+
+\paragraph{dmz.}
+Die Zuordnung folgt den drei Zonen (\Cref{fig:topo-dmz}). In der
+entmilitarisierten Zone liegen der Webserver sowie die beiden Dienste, die er
+benötigt: der Mailserver für ausgehende Benachrichtigungen und der
+Applikationsserver als Backend. Beide melden sich am Domain-Controller an und
+überschreiten damit als einzige die Zonengrenze ins Intranet. Der
+Applikationsserver hält zusätzlich die Zugangsdaten der Datenbank, wie es einer
+fest konfigurierten Datenbankverbindung entspricht. Im Intranet selbst greift
+keine weitere Trennung mehr: Der Domain-Controller erreicht alle Endsysteme,
+und der Dateiserver sichert auf den Backup-Server. Genau dieses Gefälle ist
+gemeint, wenn vom befestigten Perimeter bei weichem Inneren die Rede ist.
+
+\begin{figure}[H]
+  \centering
+  \input{abbildungen/topologie_dmz}
+  \caption[Topologie \emph{dmz}]{Topologie \emph{dmz}. Der Einstiegsknoten
+  erreicht nur die beiden Dienste der entmilitarisierten Zone; erst über diese
+  führt der Weg ins Intranet.}
+  \label{fig:topo-dmz}
+\end{figure}
+
+\paragraph{hub\_and\_spoke.}
+Die Rolle des Hubs übernimmt der Applikationsserver. Nach dem
+Domain-Controller unterhält er die meisten fachlich begründeten Verbindungen
+über Bereichsgrenzen hinweg: Er liest aus der Datenbank, meldet sich am
+Verzeichnisdienst an und greift auf die Dateiablage zu. Zu den übrigen Spokes
+besteht keine solche fachliche Beziehung; die Arbeitsplätze etwa nutzen die
+Anwendung über den Webserver und nicht unmittelbar. Das Muster verlangt eine
+solche Beziehung aber auch nicht: Die Kanten zwischen Hub und Spokes folgen aus
+der Transitrolle selbst, die sämtlichen Verkehr über diesen einen Punkt führt,
+und fallen bei jeder Wahl des Hubs gleichermaßen an.
+
+Dass nicht der Domain-Controller zum Hub wurde, obwohl er noch mehr Bereiche
+verbindet, ist eine bewusste Entscheidung. Dass der Hub überhaupt ein
+übernehmbares System sein muss, ist bereits das oben beschriebene
+Zugeständnis an das feste Inventar. Der Domain-Controller hält darüber hinaus
+die Zugangsdaten sämtlicher Knoten, und beides zusammen machte seine Übernahme
+zum Verlust des gesamten Netzes: Der Angreifer erhielte mit einem einzigen
+Knoten Reichweite und Zugriff auf alles, und für sechs der neun übrigen Knoten
+verkürzte sich der Angriffsweg um einen Schritt, weil ihre Zugangsdaten dann
+bereits am Engpass lägen. Die Trennung von Reichweite und Zugriff, die dieses
+Muster gerade auszeichnet, wäre aufgehoben.
+
+Allein der Hub besitzt ausgehende Firewall-Regeln, alle übrigen Knoten haben
+keine (\Cref{fig:topo-hub}).
+
+Für den Angreifer bedeutet das eine harte Einschränkung. Von einem übernommenen
+Endsystem aus kommt er nicht weiter, denn ein Spoke erreicht keinen anderen
+Spoke. Jeder Schritt setzt den Hub voraus. Zugleich verschafft ihm der Hub aber
+nur Reichweite, nicht Zugriff: Die Zugangsdaten der Arbeitsplätze sowie des
+Mail-, Datei- und Backup-Servers liegen ausschließlich beim Domain-Controller.
+Der Angreifer muss also erst diesen übernehmen, um die Reichweite des Hubs
+überhaupt nutzen zu können.
+
+\begin{figure}[H]
+  \centering
+  \input{abbildungen/topologie_hub_and_spoke}
+  \caption[Topologie \emph{hub\_and\_spoke}]{Topologie \emph{hub\_and\_spoke}.
+  Der Applikationsserver ist als Hub der einzige Übergang zwischen dem
+  Einstiegsknoten und allen übrigen Systemen.}
+  \label{fig:topo-hub}
+\end{figure}
+
+\paragraph{micro\_segmented.}
+Für den Einstiegsknoten bleibt genau eine Verbindung übrig: die zum
+Applikationsserver, dessen Backend er als Webserver benötigt. Der
+Applikationsserver seinerseits darf die Datenbank und den Domain-Controller
+erreichen, weil er Anwendungsdaten liest und Anmeldungen prüfen muss. Zu den
+Arbeitsplätzen, zum Mail-, Datei- und Backup-Server besteht dagegen keine
+fachliche Notwendigkeit, folglich existiert auch keine entsprechende Freigabe.
+Diese sechs Knoten sind damit nicht vom Netz getrennt, sie nehmen ihre Arbeit
+weiterhin auf und greifen ihrerseits auf Dienste zu; nach dem oben Gesagten ist
+solcher Verkehr hier nur nicht verzeichnet, weil er dem Angreifer keinen Weg
+eröffnet. Vom Einstiegsknoten aus führt zu ihnen jedoch kein Pfad, sodass für
+den Angreifer höchstens 145 der insgesamt 235 Punkte erreichbar bleiben
+(\Cref{fig:topo-micro}).
+
+Ein zweiter Unterschied betrifft die Zugangsdaten und wiegt für den Angriffsweg
+schwerer. In den übrigen Topologien hinterlegt der Applikationsserver die
+Zugangsdaten der Datenbank dauerhaft bei sich, wie es bei einer fest
+konfigurierten Datenbankverbindung üblich ist. Hier speichert er sie nicht; sie
+liegen ausschließlich beim Domain-Controller. Der Angreifer erreicht die
+Datenbank zwar schon vom Applikationsserver aus, kann sie aber erst übernehmen,
+nachdem er den Domain-Controller kompromittiert hat. Aus zwei Sprüngen werden
+drei.
+
+\begin{figure}[H]
+  \centering
+  \input{abbildungen/topologie_micro_segmented}
+  \caption[Topologie \emph{micro\_segmented}]{Topologie
+  \emph{micro\_segmented}. Blass dargestellte Knoten sind vom Einstiegsknoten
+  aus über keinen Pfad erreichbar. Anders als in den übrigen Topologien
+  speichert der Applikationsserver die Zugangsdaten der Datenbank
+  nicht zwischen; sie liegen ausschließlich beim Domain-Controller.}
+  \label{fig:topo-micro}
+\end{figure}
+
+\paragraph{chain.}
+Die Kette ist als strikte Linie ohne jede Verzweigung ausgelegt
+(\Cref{fig:topo-chain}) und damit die einfachste denkbare Anordnung: Wer sie
+lösen will, muss nur den Nachbarn entdecken, dessen Zugangsdaten auslesen und
+ihn übernehmen, und das neun Mal hintereinander. Ein darauf trainierter
+Angreifer beherrscht folglich genau dieses Grundmuster und nichts darüber
+hinaus, insbesondere keine Entscheidung zwischen mehreren Wegen.
+
+Damit dient die Kette als Kontrollbedingung für die Frage, ob dieses
+Grundmuster allein bereits genügt. Behauptet sich ein solcher Angreifer auch in
+den vier verzweigten Topologien, spricht das dafür, dass diese sich für den
+Verteidiger weniger unterscheiden, als ihre Struktur nahelegt. Scheitert er
+dort, lässt sich umgekehrt annehmen, dass die Verzweigungen eine andere
+Fähigkeit verlangen. Ein Beweis ist beides nicht, da nur eine einzelne
+Angreiferherkunft betrachtet wird; als Anhaltspunkt taugt der Vergleich
+gleichwohl. Voraussetzung dafür ist, dass auch der Kette dasselbe Inventar
+zugrunde liegt: dieselben zehn Knoten, dieselben Werte, dieselben
+Zugangsports. Verändert ist allein die Anordnung.
+
+\begin{figure}[H]
+  \centering
+  \input{abbildungen/topologie_chain}
+  \caption[Topologie \emph{chain}]{Topologie \emph{chain}, verwendet für das
+  Angreifertraining. Jeder Knoten gibt Erreichbarkeit und Zugangsdaten
+  ausschließlich für seinen Nachfolger preis; von dieser Topologie führen neun
+  Sprünge bis zum Crown Jewel.}
+  \label{fig:topo-chain}
+\end{figure}
+
+\section{Trainingsphasen}
+\label{sec:phasen}
+
+Der Versuch gliedert sich in zwei Phasen. In der ersten wird ausschließlich der
+Angreifer trainiert, in der zweiten ausschließlich der Verteidiger.
+
+\subsection{Phase 1: Angreifer-Vortraining}
+
+Ein Verteidiger lässt sich nur sinnvoll bewerten, wenn ihm ein kompetenter
+Gegner gegenübersteht. Deshalb werden zunächst Angreifer ohne jede Verteidigung
+trainiert, jeweils \num{500000} Zeitschritte lang.
+
+Naheliegend wäre, den Angreifer schon hier gegen einen Verteidiger antreten zu
+lassen, etwa einen zufällig handelnden, um ihn auf spätere Gegenwehr
+vorzubereiten. Darauf wird bewusst verzichtet, und zwar aus demselben Grund, aus
+dem in Phase~2 der Angreifer eingefroren wird: Was den Angreifer formt, soll
+allein die Topologie sein. Ein mittrainierter Verteidiger, ob zufällig oder
+lernend, wirkt als zweite Einflussgröße auf die Herkunft jedes Angreifers ein,
+und die beobachteten Unterschiede zwischen den Angreifern ließen sich nicht mehr
+eindeutig der Struktur zuschreiben. Ein zufälliger Verteidiger wäre zudem selbst
+willkürlich gesetzt: Seine Aktionen bevorzugten keine Topologie planvoll,
+verzerrten das Angreifertraining aber dennoch in einer nicht kontrollierten
+Weise. Der Preis dieser Reinheit ist, dass die Angreifer keine Erfahrung mit
+Gegenwehr sammeln; \Cref{sec:limitationen} greift das auf.
+
+Fünf \emph{Spezialisten} entstehen dabei, einer je Topologie. Jeder lernt zwar
+nur in einer einzigen Umgebung, tritt in Phase~2 jedoch in allen vier
+Verteidigungstopologien als Gegner an. Ein Angreifer trifft dort also in aller
+Regel auf eine Struktur, die er im Training nicht gesehen hat. Genau diese
+Kreuzung erlaubt es, den Einfluss der verteidigten Topologie von dem der
+Angreiferherkunft zu trennen. Ergänzend
+wird ein \emph{Generalist} trainiert, im Folgenden Super-Angreifer genannt: Ein
+einzelnes Modell durchläuft nacheinander alle fünf Topologien -- in der
+Reihenfolge \emph{chain}, \emph{flat}, \emph{hub\_and\_spoke}, \emph{dmz},
+\emph{micro\_segmented} --, wobei die Gewichte von Stufe zu Stufe
+weitergereicht werden. Damit lässt sich prüfen, ob
+ein über mehrere Strukturen trainierter Angreifer den Spezialisten überlegen
+ist.
+
+\subsection{Phase 2: Verteidiger-Matrix}
+
+In der zweiten Phase wird für jede Kombination aus Verteidigungstopologie und
+Angreifer ein eigener Verteidiger trainiert. Bei vier Topologien und sechs
+Angreifern ergeben sich 24~Matchups. Der Angreifer ist dabei \emph{eingefroren}:
+Sein Modell wird geladen, handelt weiter, erhält aber keine Gewichtsanpassungen
+mehr.
+
+Das Einfrieren hält den Gegner über den gesamten Lauf konstant und macht die
+beobachtete Lernkurve dem Verteidiger zurechenbar. Lernten beide Agenten
+gleichzeitig, verschöbe sich das Ziel fortlaufend, und ein Unterschied zwischen
+zwei Topologien ließe sich nicht mehr von einem Unterschied im Gegnerverhalten
+trennen. Diese Entscheidung lässt sich auch am MARLon-Aufbau selbst
+festmachen: Dort führt gleichzeitiges Training beider Agenten dazu, dass der
+Angreifer keinen brauchbaren Angriffsweg mehr findet, weil wiederholte
+Rücksetzungen durch einen anfangs instabilen Verteidiger ihn immer wieder auf
+den Ausgangszustand zurückwerfen, bevor er über den Anfang der Episode
+hinauskommt~\autocite{marlon}. Erkauft wird die Zurechenbarkeit damit, dass der
+Verteidiger sich auf genau ein unveränderliches Gegnerverhalten einspielen kann.
+Eben deshalb wird nicht ein einzelner Angreifer eingesetzt, sondern gegen jede
+Topologie alle sechs: Jeder Verteidiger sieht zwar nur einen Gegner, über die
+Matrix hinweg werden aber sechs verschiedene Angriffsmuster geprüft, davon fünf,
+die nicht auf der verteidigten Topologie entstanden sind. Vollständig aufheben
+lässt sich die Einschränkung dadurch nicht; \Cref{sec:limitationen} greift sie auf.
+
+Jedes Matchup wird fünfmal wiederholt, und verglichen wird nicht der einzelne
+Lauf, sondern der über die fünf Wiederholungen gemittelte Verlauf. Insgesamt
+ergeben sich damit \num{120}~Trainingsläufe zu je \num{500000} Zeitschritten.
+
+\section{Aktionsraum und Invalid-Action-Masking}
+\label{sec:masking}
+
+Was ein Agent lernen kann, ist durch die Menge der ihm zur Verfügung
+stehenden Aktionen begrenzt. Dieser Abschnitt beschreibt diese Menge für
+beide Seiten samt der Maskierung, die im jeweiligen Zustand ungültige
+Aktionen ausschließt, und prüft abschließend, welche mehrstufigen
+Strategien darin überhaupt angelegt sind.
+
+\subsection{Der Aktionsraum des Angreifers}
+\label{sec:aktionsraum-atk}
+
+In jedem Zeitschritt wählt der Angreifer genau eine Aktion aus. Eine Aktion ist
+dabei keine grobe Absicht wie \glqq greife den Dateiserver an\grqq{}, sondern eine
+vollständig ausformulierte Anweisung: Sie legt fest, was getan wird, von
+welchem Knoten aus und gegen welches Ziel. \ac{CBS} kennt dafür drei Arten.
+
+Eine \emph{lokale Aktion} durchsucht einen bereits übernommenen Knoten von
+innen, etwa nach dort gespeicherten Zugangsdaten. Eine \emph{entfernte Aktion}
+richtet sich von einem übernommenen Knoten aus gegen ein anderes System und
+späht dieses aus. Eine \emph{Verbindung} meldet sich mit erbeuteten
+Zugangsdaten an einem Zielknoten an und übernimmt ihn. Nur die dritte Art
+erweitert den Besitz; die ersten beiden beschaffen die Voraussetzungen dafür.
+
+Jede Kombination aus Aktionsart und Parametern bildet einen eigenen Eintrag.
+Die Größe des Aktionsraums ergibt sich damit als Produkt der jeweiligen
+Auswahlmöglichkeiten (\Cref{tab:aktionsraum}).
+
+\begin{table}[H]
+  \centering
+  \caption[Aufbau des Aktionsraums]{Aufbau des Aktionsraums des Angreifers bei
+  zehn Knoten.}
+  \label{tab:aktionsraum}
+  \begin{tabular}{llr}
+    \toprule
+    Art & Parameter & Anzahl \\
+    \midrule
+    Lokale Aktion   & 10 Knoten $\times$ 2 Schwachstellen & 20 \\
+    Entfernte Aktion & 10 Quellen $\times$ 10 Ziele $\times$ 1 Schwachstelle & 100 \\
+    Verbindung      & 10 Quellen $\times$ 10 Ziele $\times$ 6 Ports $\times$ 9 Zugangsdaten & 5400 \\
+    \midrule
+    Gesamt          &  & 5520 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Die 5400 Verbindungen wirken auf den ersten Blick redundant, denn ein Knoten
+besitzt in der Modellierung genau einen Zugangsport und genau einen Satz
+Zugangsdaten; mit der Wahl des Ziels stünden beide inhaltlich also bereits
+fest. \ac{CBS} nimmt diese Einschränkung jedoch nicht vor:
+Angeboten werden für jede Quelle-Ziel-Kombination sämtliche 54 Kombinationen
+aus Port und zwischengespeicherter Zugangsdatenkarte, mit dem ausdrücklichen
+Hinweis im Quellcode der Umgebung, dass Erfolg damit nicht garantiert sei. Der
+Angreifer muss also selbst lernen, welche einzelne davon zum jeweiligen Knoten
+passt; sie sind dem Aktionsraum nicht vorweg entzogen.
+
+Technisch sind diese 5520 Einträge als flaches \texttt{Discrete} umgesetzt,
+also als eine einzige durchnummerierte Liste, in der jede vollständige Aktion
+einen eigenen Index besitzt. MARLon verwendet an dieser Stelle ein
+\texttt{MultiDiscrete}, bei dem der Agent je Zug eine Reihe von Zahlen ausgibt:
+eine für die Aktionsart, weitere für Quellknoten, Zielknoten, Port und
+Zugangsdaten.
+
+Nötig wurde die Umstellung durch das im Folgenden beschriebene Masking. Dieses
+kennzeichnet jeden Eintrag der Liste einzeln als gültig oder ungültig. Bei einem
+\texttt{MultiDiscrete} müsste jede Stelle für sich gekennzeichnet werden, und
+damit lassen sich verknüpfte Bedingungen nicht ausdrücken: Ob ein Zielknoten in
+Frage kommt, hängt davon ab, welcher Quellknoten gewählt wurde, denn nur von
+einem übernommenen Knoten aus lässt sich überhaupt handeln. Eine Kennzeichnung
+je Stelle kennt diese Abhängigkeit nicht und müsste einen Zielknoten entweder
+immer oder nie zulassen. Erst wenn sämtliche Kombinationen als einzelne
+Einträge nebeneinanderstehen, lässt sich die Bedingung abbilden, weil dann genau
+die gültigen \emph{Gesamt}aktionen bezeichnet werden können. Der Preis ist eine
+sehr lange Liste, doch da davon je Schritt nur wenige Einträge gültig sind,
+wählt der Angreifer tatsächlich aus einer kleinen Menge.
+
+Das Verfahren selbst ist das \emph{Invalid-Action-Masking} nach Huang und
+Ontañón~\autocite{huang2022masking}. Vor jeder Entscheidung wird
+ein boolescher Vektor übergeben, der die im aktuellen Zustand gültigen Aktionen
+markiert; die Policy wählt ausschließlich aus diesen. Ohne Maskierung entfällt
+ein Großteil der Schritte auf wirkungslose Aktionen, etwa den Angriff von einem
+nicht kontrollierten Knoten aus.
+
+Technisch gibt der Actor je Aktion zunächst einen unnormierten Zahlenwert aus,
+ein sogenanntes \emph{Logit}; erst ein nachgelagerter Rechenschritt überführt
+diese Werte in die Wahrscheinlichkeiten der
+Policy~\cite[Abschn.~\glqq Background\grqq{}]{huang2022masking}. Die Maskierung
+setzt an dieser Stelle an: Die Logits ungültiger Aktionen werden vor der
+Normierung durch eine sehr große negative Zahl ersetzt, in der hier
+eingesetzten Implementierung $-10^{8}$, sodass ihre Wahrscheinlichkeit
+praktisch null wird. Die Wahrscheinlichkeitsmasse verteilt sich dadurch
+ausschließlich auf die gültigen Aktionen, statt über alle 5520 zu streuen. Die
+Markov-Eigenschaft bleibt davon unberührt, denn maskiert wird nicht der Zustand,
+sondern die in ihm zulässige Aktionsmenge. Zustandsabhängige Aktionsmengen sind
+Bestandteil der üblichen \ac{MDP}-Definition. Huang und Ontañón zeigen zudem,
+dass der resultierende Gradient weiterhin ein gültiger Policy-Gradient
+ist~\autocite{huang2022masking}.
+
+Entscheidend ist der Zeitpunkt der Maskenberechnung. Sie erfolgt unmittelbar
+vor der Aktionswahl aus dem aktuellen Zustand. Eine zwischengespeicherte Maske
+wäre um den vorangegangenen Verteidigerzug veraltet, da dieser Knoten neu
+aufsetzen oder Verbindungen sperren kann. Huang und Ontañón behandeln den Fall
+eines einzelnen Agenten, bei dem diese Frage nicht auftritt; sobald ein zweiter
+Agent zwischen zwei Zügen handelt, genügt es nicht mehr, die Maske einmal je
+eigenem Schritt zu bestimmen.
+
+\subsubsection{Reichweite der Maskierung: Zugangsdaten allein genügen nicht}
+\label{sec:mask-reichweite}
+
+Die von \ac{CBS} bereitgestellte Aktionsmaske prüft für eine Verbindung
+ausschließlich, ob der Angreifer die betreffende Zugangsdatenkarte besitzt,
+nicht aber, ob zwischen Quelle und Ziel überhaupt ein Netzpfad besteht.
+Weil die Modellierung Erreichbarkeit und Zugangsdatenbesitz trennt
+(\Cref{sec:topomodell}), würde sie damit Verbindungen entlang gar nicht
+vorhandener Kanten erlauben, sobald der Angreifer die passenden
+Zugangsdaten irgendwo erbeutet hat, und die Topologie als Einflussgröße
+unterlaufen.
+
+Die native Maske wurde deshalb um eine eigene Einschränkung ergänzt. Der Angreifer führt seither mit, welche Kante er von welchem Knoten aus
+tatsächlich aufgedeckt hat; aufgedeckt wird eine Kante ausschließlich durch
+die auf den Quellknoten gerichtete lokale Aktion zur
+Nachbarschaftserkundung, nicht durch das Erbeuten von Zugangsdaten. Die von
+\ac{CBS} gelieferte Maske wird für Verbindungen und entfernte Aktionen mit
+dieser Liste geschnitten und bildet damit auch die Netzstruktur ab.
+
+Anders als das Masking selbst, das bereits im Referenzlauf eingesetzt wurde,
+stammt diese Erweiterung aus der späteren Überarbeitung. Sie greift unmittelbar
+in das Verhalten des Angreifers ein, weshalb sämtliche Angreifer für die
+berichteten Läufe neu vortrainiert wurden.
+
+\subsection{Der Aktionsraum des Verteidigers}
+\label{sec:aktionsraum-def}
+
+Der Verteidiger verfügt über drei Aktionsarten: Er kann einen Knoten \emph{neu
+aufsetzen} und damit den Angreifer von diesem System vertreiben, er kann
+dessen eingehenden \emph{Verkehr sperren}, und er kann eine bestehende Sperre
+wieder \emph{aufheben}. Jede der drei Arten benennt ausschließlich den
+betroffenen Knoten; Sperren und Aufheben wirken dabei auf sämtliche
+eingehenden Dienste dieses Knotens zugleich, ohne dass Port oder Richtung
+gesondert gewählt würden.
+
+Technisch ist das als \texttt{MultiDiscrete} über vier Dimensionen umgesetzt,
+$[3, 10, 10, 10]$. Der erste Wert wählt die Aktionsart, die übrigen drei
+benennen den Knoten für Neuaufsetzen, Sperren beziehungsweise Aufheben; nur
+die zur gewählten Art passende Dimension wird ausgewertet
+(\Cref{tab:aktionsraum-def}).
+
+\begin{table}[H]
+  \centering
+  \caption[Aktionsraum des Verteidigers]{Aktionsraum des Verteidigers bei zehn
+  Knoten.}
+  \label{tab:aktionsraum-def}
+  \begin{tabular}{llrr}
+    \toprule
+    Aktionsart & Parameter & Kombinationen & davon wirksam \\
+    \midrule
+    Knoten neu aufsetzen & 10 Knoten & 10 & 9 \\
+    Verkehr sperren      & 10 Knoten & 10 & 9 \\
+    Verkehr aufheben     & 10 Knoten & 10 & 9 \\
+    \midrule
+    Gesamt                &  & 30 & 27 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Der Einstiegsknoten schränkt beide Spalten der Tabelle zusätzlich ein. Er ist
+nicht neu aufsetzbar, wodurch für das Neuaufsetzen nur neun der zehn Knoten
+tatsächlich gültige Ziele sind. Eine Sperre auf ihm ist zwar technisch gültig,
+bringt aber nie einen Nutzen: Er trägt den Wert null und bleibt über die
+gesamte Episode kompromittiert, weil er nicht zurückgewonnen werden kann.
+Wirksam wählbar bleiben damit 27 der 30 strukturell möglichen Aktionen.
+
+Gegenüber dem Original ist dieser Aktionsraum damit in zweifacher Hinsicht
+enger. MARLon sieht fünf Aktionsarten vor, neben dem Neuaufsetzen, dem Sperren
+und dem Aufheben auch das Stoppen und das Starten eines Dienstes, und verlangt
+zu jeder von ihnen zusätzlich Port und Richtung als selbst zu wählende
+Parameter (\Cref{sec:marlon-original}). Hier sind es drei Aktionsarten mit dem
+Knoten als einzigem Parameter. Beide Änderungen gehen auf Beobachtungen am
+Referenzlauf zurück.
+
+Als erste Änderung sind Dienst stoppen und Dienst starten entfallen. Für den Angreifer ist
+ein gestoppter Dienst von einer gesperrten Verbindung ohnehin nicht zu
+unterscheiden, beide lassen den Verbindungsversuch scheitern. Da eine Sperre
+nach dem Umbau denselben Knoten in seiner Gesamtheit betrifft und seit der in
+\Cref{sec:sla} beschriebenen Korrektur ebenfalls Verfügbarkeit kostet, blieb
+kein Zweck, den nicht auch sie erfüllt.
+
+Ausschlaggebend war damit nicht, dass eine der beiden Aktionen die schlechtere
+gewesen wäre, sondern dass zwei Aktionen für dieselbe Wirkung den Aktionsraum
+ohne Gewinn an Ausdruckskraft vergrößert hätten. Dass die Wahl auf die Sperre
+fiel, hat einen inhaltlichen Grund: Sie setzt am Zugang zu einem System an und
+lässt dessen Betrieb unberührt, während ein Dienststopp in das System selbst
+eingreift. Von zwei gleich wirkenden Mitteln ist damit das mildere gewählt.
+
+Offenzulegen ist dabei, dass diese Gleichwertigkeit nur für die Sperre in ihrer
+heutigen Form gilt und nie gemessen wurde. Im Referenzlauf standen dem
+Verteidiger zwar beide Aktionen gleichzeitig zur Verfügung, aber nicht als
+gleichwertige Alternativen: Die Sperre wirkte dort je Port statt je Knoten,
+erreichte wegen der in \Cref{sec:marlon-fehler} beschriebenen Portliste die
+wertvollsten Systeme überhaupt nicht und brachte, da sie weder Verfügbarkeit
+kostete noch belohnt wurde, keinerlei Signal hervor. Der Dienststopp dagegen
+war auf sauberen Knoten mit zehn Punkten belastet. Dass der Verteidiger ihn
+dort ablegte, ist deshalb kein Vergleichsergebnis. Ein Lauf, in dem beide
+Aktionen unter den heutigen Bedingungen nebeneinander zur Wahl stünden, wurde
+nicht durchgeführt; die Gleichwertigkeit folgt aus der Betrachtung der
+Wirkungsketten, nicht aus einer Messung.
+
+Als zweite Änderung wählt der Verteidiger für Sperren und Freigaben nicht mehr selbst,
+welcher Port betroffen ist. Er benennt nur den Knoten; welche Dienste dort
+laufen, ist als Grundwissen des Betreibers vorausgesetzt und kein
+Erkundungsergebnis, wie es für den Angreifer eines wäre. Dieselbe Asymmetrie
+gilt bereits an anderer Stelle des Modells: Der Verteidiger spricht jeden
+Knoten direkt über seinen Index an und darf ihn neu aufsetzen, sieht sein
+eigenes Netz für die Zwecke dieser Aktionen also vollständig. Die Wahl des
+Ports blieb die einzige Stelle, an der er über sein eigenes Netz raten musste;
+diese Uneinheitlichkeit ist mit der Änderung beseitigt.
+
+\subsection{Mehrstufige Strategien im Aktionsraum}
+\label{sec:mehrstufig}
+
+Die Wirkung einer Verteidigeraktion hängt davon ab, wo sie ansetzt. Eine
+Sperre wirkt nur auf den \emph{Ziel}knoten einer Verbindung. Auf einem Knoten,
+den der Angreifer bereits besitzt, ändert eine Sperre deshalb nichts, denn als
+Ausgangspunkt einer weiteren Verbindung braucht er den eigenen eingehenden
+Zugang nicht. Auf einem noch nicht übernommenen Knoten verhindert sie die
+Übernahme über diesen Weg sehr wohl.
+
+Daraus folgt eine Strategie, die den Angreifer vollständig einschließen würde:
+Man drängt ihn durch wiederholtes Neuaufsetzen auf den Einstiegsknoten zurück
+und sperrt anschließend alle von dort aus erreichbaren Knoten. Der Angreifer
+besäße dann zwar weiterhin ein System, käme aber nirgendwo mehr hin. Der
+Aktionsraum sieht diese Möglichkeit demnach vor.
+
+Ob ein lernendes Verfahren sie auch findet, ist eine andere Frage. Die
+Einschließung besteht aus vielen einzelnen Sperren, und ihr Nutzen tritt erst
+ein, wenn die letzte von ihnen gesetzt ist: Solange auch nur ein Weg offen
+bleibt, nimmt der Angreifer ihn. Bis dahin bringt jede einzelne Sperre für sich
+genommen nichts. Der Verteidiger müsste eine lange Folge bestimmter Aktionen
+zufällig treffen, bevor sich überhaupt ein Reward zeigt, an dem \ac{PPO} sie
+erkennen könnte. Das ist der in \Cref{sec:credit} beschriebene Fall der
+verzögerten Belohnung in ausgeprägter Form.
+
+Erreichbar wird eine solche Strategie erst, wenn bereits die einzelne Sperre
+einen eigenen Reward trägt, wenn die Zwischenschritte also für sich verstärkt
+werden und der Agent sie nicht erst am Ende der Kette bewertet bekommt. Genau
+darauf zielt der in \Cref{sec:abwehrbonus} beschriebene Abwehrbonus. Ob er
+dafür ausreicht, wird in \Cref{ch:ergebnisse} untersucht.
+
+\section{Reward-Struktur und Randbedingungen}
+\label{sec:rewards}
+
+Der Reward entsteht auf zwei Ebenen: \ac{CBS} bewertet jede Angreiferaktion,
+und der Wrapper setzt darauf die Kopplung beider Agenten sowie die in diesem
+Abschnitt beschriebenen Ergänzungen.
+
+\begin{longtable}{EWK}
+    \caption[Reward des Angreifers]{Reward des Angreifers je Aktion. Aufgeführt
+    sind nur die Bestandteile, die in den hier verwendeten Topologien überhaupt
+    auftreten können. Der untere Block stammt nicht aus \ac{CBS}, sondern wird
+    vom Wrapper ergänzt.}
+    \label{tab:reward-atk} \\
+    \toprule
+    Ereignis & Reward & Anmerkung \\
+    \midrule
+    \endfirsthead
+    \toprule
+    Ereignis & Reward & Anmerkung \\
+    \midrule
+    \endhead
+    \midrule
+    \multicolumn{3}{@{}r@{}}{\footnotesize Fortsetzung auf der nächsten Seite} \\
+    \endfoot
+    \bottomrule
+    \endlastfoot
+    Knoten übernommen             & $+$Knotenwert & 10 bis 100, auch nach Rückeroberung \\
+    Knoten neu entdeckt           & $+5$  & je Knoten \\
+    Zugangsdaten neu entdeckt     & $+3$  & je Credential \\
+    Eigenschaft neu entdeckt      & $+2$  & je Eigenschaft eines Knotens, hier Betriebssystem und Rolle, die ein Scan aus der Ferne sichtbar macht \\
+    Aktion erstmals erfolgreich   & $+7$  & je Knoten und Schwachstelle \\
+    Fehlversuch, Wiederholung, Aktionskosten & $0$ & in \ac{CBS} zwischen $-1$ und $-50$, durch die unten beschriebene Kappung ohne Wirkung \\
+    Alle Knoten übernommen        & $+5000$ & ersetzt den Schrittwert \\
+    \midrule
+    Knoten gehalten               & $+0{,}005\cdot$Knotenwert & je Knoten und Schritt \\
+    Knoten durch Reimage verloren & $-$Knotenwert & \\
+\end{longtable}
+
+Damit ist der Reward des Angreifers vollständig beschrieben. Der des
+Verteidigers folgt in \Cref{tab:reward-def}. Er entsteht überwiegend durch
+Spiegelung der eben aufgeführten Werte und trägt darüber hinaus einige eigene
+Posten.
+
+\begin{longtable}{EWK}
+    \caption[Reward des Verteidigers]{Reward des Verteidigers je Schritt.}
+    \label{tab:reward-def} \\
+    \toprule
+    Ereignis & Reward & Anmerkung \\
+    \midrule
+    \endfirsthead
+    \toprule
+    Ereignis & Reward & Anmerkung \\
+    \midrule
+    \endhead
+    \midrule
+    \multicolumn{3}{@{}r@{}}{\footnotesize Fortsetzung auf der nächsten Seite} \\
+    \endfoot
+    \bottomrule
+    \endlastfoot
+    Grundkopplung             & $-$Angreifer-Reward & jeder Schritt \\
+    Abwehrbonus & $\pm 0{,}00025\cdot$Knotenwert & je Knoten, der gesperrt und zugleich nicht kompromittiert ist; Vorzeichen je nach Bedrohungslage, \Cref{sec:abwehrbonus} \\
+    Ungültige Aktion          & $0$ & Zug wird übersprungen \\
+    \midrule
+    \ac{SLA} unterschritten   & $-50$ & je Schritt, ergänzt den Schrittwert \\
+    Angreifer vollständig entfernt & $+5000$ & strukturell unerreichbar \\
+\end{longtable}
+
+Mehrere Eigenschaften dieser Struktur sind für die Auswertung wesentlich und
+nicht offensichtlich.
+
+Erstens erklärt sich die Nullzeile in \Cref{tab:reward-atk} aus einer Kappung:
+\ac{CBS} kennt für Fehlversuche, Wiederholungen und Aktionskosten durchaus
+Abzüge, begrenzt den Schrittwert des Angreifers aber nach unten auf null, bevor
+er zurückgegeben wird. Ein Fehlversuch kostet ihn also nichts, er bringt
+lediglich nichts ein. Diese Kappung ist für sich genommen
+sinnvoll: Sie verhindert, dass der Verteidiger über die Grundkopplung Reward
+für Vorgänge gutgeschrieben bekäme, zu denen er nichts beigetragen hat, was
+das Lernsignal verfälschen würde. Sie schließt aber zugleich, in Verbindung mit
+der reinen Grundkopplung, den Kanal, über den Prävention im Reward sichtbar
+würde, wie \Cref{sec:marlon-original} gezeigt hat. Die Begrenzung greift
+zudem nur auf dem Wert, den \ac{CBS} selbst berechnet; der untere
+Tabellenblock wird erst danach aufgeschlagen. Negative Angreifer-Rewards
+entstehen deshalb ausschließlich durch verlorene Knoten: Setzt der
+Verteidiger einen übernommenen Knoten neu auf, verliert der Angreifer dessen
+Wert.
+
+Zweitens folgt aus dem Abzug für verlorene Knoten eine Bedingung, die \ac{CBS}
+von sich aus nicht erfüllt. Der Abzug ist eine eigene Ergänzung
+(\Cref{tab:reward-atk}, unterer Block): Im Auslieferungszustand kostet ein
+Reimage den Angreifer nichts, er behält den einmal gutgeschriebenen Knotenwert
+einfach. Damit ist dort auch nichts unausgeglichen. Sobald ein Verlust aber
+etwas kostet, muss die Rückeroberung desselben Knotens ihn wieder einbringen,
+sonst ist der Kreislauf aus Verlust und Rückeroberung kein Nullsummengeschäft
+mehr.
+
+Genau hier lag die Ursache des in \Cref{sec:referenzlauf} geschilderten
+Verhaltens, das dem Referenzlauf vorausging. \ac{CBS} schreibt einen Knotenwert
+nur beim \emph{ersten} Besitz gut und vermerkt die Übernahme dauerhaft; ein
+Reimage löscht diesen Vermerk nicht. Zusammen mit dem neu eingeführten Abzug
+erhielt der Angreifer für eine Rückeroberung also nichts, während ihn jeder
+Verlust den vollen Knotenwert kostete. Über die Grundkopplung wurde daraus eine
+Einnahmequelle für den Verteidiger: Er konnte denselben Knoten wieder und
+wieder neu aufsetzen und dabei jedes Mal dessen Wert vereinnahmen, ohne dass
+sich an der Lage im Netz etwas änderte. In Vorversuchen trat dieses Verhalten
+deutlich hervor. Bei zehn vorhandenen Knoten wurden bis zu 268 Rückgewinnungen
+je Episode gezählt, und der Verteidiger-Reward korrelierte mit der Zahl der
+Reimages bis zu $r = +0{,}98$. Der Vermerk wird beim Verlust eines Knotens
+deshalb zurückgesetzt. Jede Rückeroberung zählt damit erneut als erste und
+gleicht den vorangegangenen Abzug exakt aus. Der Verteidiger behält seinen
+Gewinn nur dann, wenn der Angreifer den Knoten nicht zurückholt.
+
+Drittens maß der Reward vor der hier vorgenommenen Ergänzung nur, \emph{ob}
+ein Knoten kompromittiert wurde, nicht \emph{wie lange}. Ein Angreifer, der ein
+System zwei Schritte lang hielt, stand damit genauso da wie einer, der es über
+die gesamte Episode behielt. Der Schaden eines kompromittierten Systems hängt
+jedoch von beidem ab: von seinem Wert und von der Verweildauer des Angreifers.
+Deshalb erhält der Angreifer je Schritt einen Anteil des Werts aller aktuell
+gehaltenen Knoten. Ein fester Betrag je Knoten würde
+Arbeitsplatz\-rechner und Produktionsdatenbank gleichsetzen; der wertanteilige Bonus tut das
+nicht, und der Einstiegsknoten mit dem Wert null fällt automatisch heraus.
+
+Über die Grundkopplung wirkt dieser Haltebonus unmittelbar auf den
+Verteidiger, der damit nicht nur für die Rückeroberung belohnt wird, sondern
+auch dafür, sie früh zu erreichen. Genau diese Kopplung bestimmt auch die
+Größenordnung des in \Cref{sec:abwehrbonus} eingeführten Abwehrbonus. Der
+Verteidiger steht bei einem kompromittierten Knoten stets vor der Wahl,
+diesen neu aufzusetzen oder ihn liegen zu lassen und stattdessen einen
+bedrohten sauberen Knoten abzuschirmen. \emph{Sauber} heißt dabei, dass der
+Angreifer den Knoten nicht besitzt; \emph{bedroht} heißt, dass mindestens ein
+Knoten, der ihn laut Topologie erreichen darf, bereits kompromittiert ist, der
+Angreifer ihn also unmittelbar angehen kann.
+
+Zwischen diesen beiden Wegen muss das Neuaufsetzen stets die lohnendere
+Maßnahme sein,
+denn der Verteidiger soll den Angreifer zurückdrängen und nicht neben ihm her
+wirtschaften. Andernfalls entstünde ein stilles Einvernehmen: Der Verteidiger
+ließe den Angreifer sitzen und unterhielte daneben Sperren, für die er
+fortlaufend bezahlt wird, während der Angreifer ungestört seinen Haltebonus
+bezieht. Je Schritt kostet ihn das Liegenlassen eines kompromittierten Knotens
+$Q$ über die Kopplung $0{,}005 \cdot \text{Wert}(Q)$, und das Abschirmen eines
+bedrohten Knotens $Z$ bringt ihm $0{,}00025 \cdot \text{Wert}(Z)$. Damit das
+Neuaufsetzen auch im ungünstigsten Fall überwiegt, beim billigsten
+kompromittierten Knoten (Wert~10) gegenüber dem wertvollsten bedrohten Ziel
+(Wert~100), muss die Haltebonusrate mehr als das Zehnfache der Abwehrbonusrate
+betragen. Mit $0{,}005$ gegen $0{,}00025$ liegt das Verhältnis bei 20 und damit
+mit Sicherheitsabstand darüber.
+
+\subsection{Abwehrbonus: ein Zustandsreward für Prävention}
+\label{sec:abwehrbonus}
+
+Der zentrale Unterschied zum in \Cref{sec:marlon-original} beschriebenen
+Original ist ein zustandsbasierter Bonus für erfolgreiche Prävention. Den
+Anlass liefert der Referenzlauf: Dort blieb ein verhinderter Zugriff für beide
+Seiten folgenlos, weil er dem Angreifer nichts nahm und dem Verteidiger über
+die Kopplung deshalb nichts einbrachte (\Cref{sec:referenzlauf}). Ohne ein
+Signal, das Prävention sichtbar macht, lässt sich nicht untersuchen, ob eine
+Topologie sie begünstigt. Ein
+ereignisbasierter Bonus, der jeden abgewehrten Verbindungsversuch einzeln
+belohnt, wäre durch Wiederholung ausbeutbar: Der eingefrorene Angreifer läuft in
+jeder Episode erneut gegen dieselbe Sperre, und der Verteidiger erhielte bei
+jedem Versuch erneut eine Belohnung. Belohnt wird deshalb stattdessen der \emph{Zustand}
+je Zeitschritt.
+
+Betrachtet wird jeder gesperrte, saubere Knoten $Z$ mit positivem Wert. Sein
+Beitrag bemisst sich am Anteil der Bedrohung an allen Knoten, die $Z$ laut
+Topologie erreichen dürfen:
+%
+\begin{equation}
+  f = \frac{\text{kompromittierte Vorgänger von } Z}
+           {\text{alle Vorgänger von } Z},
+  \qquad
+  \text{Beitrag}(Z) = 0{,}00025 \cdot \text{Wert}(Z) \cdot (2f - 1).
+  \label{eq:abwehrbonus}
+\end{equation}
+%
+Ist jeder Vorgänger von $Z$ kompromittiert ($f=1$), erhält der Verteidiger den
+vollen positiven Beitrag; ist keiner kompromittiert ($f=0$), den vollen
+negativen. Dazwischen wird linear interpoliert. Die zweite Hälfte der Formel
+ist der eigentliche Kern: Sie verhindert, dass der Verteidiger einfach alles
+sperrt und dafür bezahlt wird, denn eine Sperre ohne bestehende Bedrohung
+kostet ihn ebenso viel, wie eine Sperre gegen eine vollständige Bedrohung ihm
+einbringt.
+
+Eine frühere, hier verworfene Fassung entschied binär, ob \emph{irgendein}
+kompromittierter Knoten den Zugangsport von $Z$ überhaupt hätte nutzen dürfen,
+unabhängig davon, wie viele saubere Knoten dieselbe Sperre zusätzlich vom
+Zugriff ausschloss. In einer Topologie mit hohem Eingangsgrad, etwa
+\emph{flat} mit neun eingehenden Kanten je Knoten, zahlte diese Fassung
+praktisch jede beliebige Sperre positiv aus, selbst wenn sie überwiegend
+legitime Zugänge und nur nebenbei eine tatsächliche Bedrohung traf. Die
+Der Anteil $f$ aus \Cref{eq:abwehrbonus} vermeidet das, weil er die Zahl der
+Vorgänger im Nenner führt: Je mehr Wege auf einen Knoten führen, desto größer
+muss der kompromittierte Teil von ihnen sein, damit sich eine Sperre auszahlt.
+Grundlage der Vorgängerbeziehung ist dabei die in \Cref{sec:topomodell}
+definierte Adjazenz.
+
+Der Abwehrbonus bleibt gegenüber der \ac{SLA}-Strafe und der Grundkopplung
+bewusst klein und soll das auch sein. Der eigentliche Anreiz zur Prävention
+entsteht über die Grundkopplung selbst: Ein verhinderter Zugriff ist ein
+Knotenwert samt zugehörigem Haltebonus, den der Angreifer nie erhält, und
+dieser Effekt gilt unabhängig davon, wie präzise eine einzelne Sperre im Sinne
+von \Cref{eq:abwehrbonus} war.
+
+Die Grundkopplung macht das Spiel bis auf zwei Ausnahmen zu einem
+Nullsummenspiel: Was der Angreifer gewinnt, verliert der Verteidiger und
+umgekehrt. Daraus folgt unmittelbar, dass ein Reimage dem Verteidiger den Wert
+des zurückgewonnenen Knotens einbringt, denn der Angreifer verliert ihn, und
+die Kopplung spiegelt das. Die beiden Ausnahmen sind der Abwehrbonus selbst
+und die \ac{SLA}-Strafe.
+
+\subsection{Verfügbarkeit und \acs{SLA}-Schwelle}
+\label{sec:sla}
+
+Die Verfügbarkeit ist die einzige Größe, die dem Verteidiger Grenzen setzt.
+Ohne sie könnte er beliebig viele Knoten gleichzeitig neu aufsetzen und
+sperren, ohne dafür je zu zahlen. Ihre Berechnung ist deshalb im Einzelnen
+anzugeben. \ac{CBS} führt eine Netzverfügbarkeit zwischen null und
+eins. Sie ist das mit den Knotengewichten gebildete Mittel über alle Knoten;
+im vorliegenden Aufbau tragen alle zehn Knoten das Gewicht~1. Der Beitrag
+eines einzelnen Knotens beträgt
+%
+\begin{equation}
+  a_i =
+  \begin{cases}
+    \dfrac{1 + \sum_{s \in S_i} w_s \cdot [\,s \text{ erreichbar}\,]}
+          {1 + \sum_{s \in S_i} w_s} & \text{Knoten in Betrieb,} \\[2ex]
+    0 & \text{Knoten wird neu aufgesetzt,}
+  \end{cases}
+  \label{eq:verfuegbarkeit}
+\end{equation}
+%
+wobei $S_i$ die Dienste des Knotens bezeichnet, $w_s$ deren Gewicht, das hier
+durchgängig~1 beträgt, und ein Dienst als erreichbar gilt, wenn er läuft
+\emph{und} sein Port nicht durch eine ausdrückliche Sperr-Regel des
+Verteidigers blockiert ist. Diese zweite Bedingung war im in
+\Cref{sec:marlon-original} beschriebenen Original nicht vorgesehen; ohne sie
+wäre Sperren in Bezug auf die Verfügbarkeit vollständig kostenlos gewesen. Ein
+Knoten mit einem einzigen Dienst trägt somit $1{,}0$ bei, solange der Dienst
+läuft und sein Port offen ist, und $0{,}5$, wenn der Verteidiger ihn selbst
+gesperrt hat. Das ist zugleich der Regelfall: Jeder Knoten des Inventars trägt
+genau einen Dienst, allein der Einstiegsknoten trägt zwei. Er kommt als Ziel
+einer Sperre jedoch ohnehin nicht in Betracht. Eine Sperre trifft nur
+eingehende Verbindungen, und der Angreifer sitzt von Beginn an auf ihm und
+nutzt ihn als Ausgangspunkt; einen Abwehrbonus trägt eine Sperre auf ihm
+ebenfalls nicht ein, denn der Bonus wird für den gesperrten Knoten selbst
+berechnet, und dieser ist hier dauerhaft kompromittiert und trägt zudem den
+Wert~0.
+
+Entscheidend ist der zweite Fall in \Cref{eq:verfuegbarkeit}: Ein neu
+aufgesetzter Knoten trägt \num{15}~Zeitschritte lang nichts bei. Die Schwelle
+liegt bei $0{,}60$; sie wird unterschritten, sobald weniger als 60~Prozent der
+gewichteten Verfügbarkeit erhalten sind. Bei zehn gleich gewichteten Knoten
+bedeutet das: Vier gleichzeitig neu aufgesetzte Knoten ergeben genau $0{,}60$
+und lösen noch nicht aus, fünf ergeben $0{,}50$ und damit einen Bruch. Eine
+einzelne Sperre verschiebt diese Grenze um $0{,}05$.
+
+Der Verteidiger gerät also nicht durch vorsichtiges Handeln in einen Bruch,
+sondern entweder durch ausgedehntes gleichzeitiges Neuaufsetzen oder durch
+Sperren in einem Umfang, der einen erheblichen Teil des Netzes gleichzeitig
+betrifft. Anders als beim Original ersetzt ein \ac{SLA}-Bruch dabei nicht mehr
+den gesamten Schrittwert, sondern ergänzt ihn um $-50$. Solange Brüche selten
+blieben, machte diese Unterscheidung wenig Unterschied; seit gesperrte Ports
+auf die Verfügbarkeit einwirken, sind Brüche jedoch der Normalfall geworden,
+und eine ersetzende Strafe hätte einzelne Episoden vollständig dominiert und
+mit allen übrigen unvergleichbar gemacht.
+
+Abschließend sind zwei Randbedingungen des Aufbaus festzuhalten; beide bestimmen, wie
+eine Episode verläuft und endet. Eine Episode umfasst höchstens \num{2000} Zeitschritte, wobei der Angreifer
+zuerst agiert. Vorzeitig endet sie ausschließlich dann, wenn der Angreifer
+sämtliche zehn Knoten übernommen hat. Insbesondere beendet ein
+\ac{SLA}-Bruch die Episode nicht, obwohl \ac{CBS} das vorsähe; er wird lediglich
+gezählt und bestraft. Damit beruhen alle Matchups auf derselben Datenbasis.
+
+Der Einstiegsknoten gehört dem Angreifer von Beginn an und kann nicht neu
+aufgesetzt werden. Die formale Siegbedingung des Verteidigers, den Angreifer
+vollständig zu verdrängen, ist damit strukturell unerreichbar. Das ist
+beabsichtigt: Wäre der Einstiegsknoten neu aufsetzbar, könnte der Verteidiger
+die Episode im ersten Schritt beenden und dafür den Siegbonus von \num{5000}
+einstreichen. Zu lernen bliebe allein diese eine Aktion, und alles Übrige,
+Sperren wie Abwägen, wäre gegenstandslos. Gemessen wird folglich Eindämmung,
+nicht Auslöschung. Für den Angreifer bleibt der verbleibende Fußabdruck
+wertlos, denn der Einstiegsknoten trägt den Wert~0.
+
+\section{Konvergenzkriterium}
+\label{sec:konvergenz}
+
+Ziel ist festzustellen, ab welcher Episode ein Verteidiger nichts Neues mehr
+dazulernt. Diese Episode ist eine der drei Zielgrößen dieser Arbeit
+(\Cref{sec:metriken}): Sie misst, wie schnell ein Verteidiger ein stabiles
+Verhalten erreicht, und ist damit die Größe, an der sich ein Einfluss der
+Topologie auf die Lerneffizienz zeigen müsste. Das Kriterium dient also der
+Messung, nicht der Steuerung des Trainings. Die Schwierigkeit liegt darin, ein
+solches Plateau von einer zufällig ruhigen Phase zu unterscheiden.
+
+Zwei Bedingungen müssen dafür gleichzeitig erfüllt sein, jeweils über ein
+gleitendes Fenster von $W = 15$ Episoden. Die erste betrifft die
+\emph{Streuung}: Die Standardabweichung der letzten $W$ Episoden-Rewards,
+geteilt durch die bisherige Reward-Spanne des Laufs, darf 0{,}05 nicht
+überschreiten. Die zweite betrifft den \emph{Trend}: Der Abstand zwischen dem
+Mittelwert der letzten $W$ Episoden und dem der $W$ davor, ebenfalls auf die
+Spanne bezogen, darf denselben Wert nicht überschreiten. Formal gilt mit
+$r_{t}$ als Reward der Episode~$t$ und $\Delta$ als Spanne aller bisherigen
+Rewards:
+%
+\begin{equation}
+  \frac{\sigma\bigl(r_{t-W+1},\dots,r_{t}\bigr)}{\Delta} \le 0{,}05
+  \qquad\text{und}\qquad
+  \frac{\bigl|\overline{r}_{t-W+1:t} - \overline{r}_{t-2W+1:t-W}\bigr|}{\Delta}
+  \le 0{,}05 .
+  \label{eq:konvergenz}
+\end{equation}
+%
+Beide Bedingungen müssen über zehn aufeinanderfolgende Episoden gehalten
+werden, damit eine einzelne ruhige Phase nicht bereits als Konvergenz gilt.
+Als Konvergenzepisode gilt diejenige, in der diese Strecke vollständig ist.
+Da zwei Fenster als Historie benötigt werden, können die Bedingungen frühestens
+in Episode~30 erstmals zutreffen, und die Strecke ist frühestens in Episode~39
+erfüllt. Vor Episode~39 kann ein Lauf demnach nicht als konvergiert gelten.
+
+Die Normierung auf die Spanne statt auf den Mittelwert ist bewusst gewählt. Der
+übliche Variationskoeffizient teilt die Standardabweichung durch den
+Mittelwert; da der Verteidiger-Reward jedoch um null pendeln kann, würde dieser
+Quotient dort unbeschränkt wachsen. Die Spanne bleibt demgegenüber stets ein
+belastbarer Bezugswert und erlaubt zudem den Vergleich zwischen Topologien mit
+sehr unterschiedlichem Reward-Niveau. Für dieses Kriterium existiert keine
+Literaturquelle; es ist empirisch an eigenen Läufen kalibriert.
+
+Anders als noch im Referenzlauf wird dieses Kriterium nicht mehr
+verwendet, um ein Training vorzeitig abzubrechen. Alle 120 Läufe erhalten
+dasselbe Budget von \num{500000} Schritten; erst nachträglich wird das
+Kriterium auf die vollständige Lernkurve angewendet, um die Episode zu
+bestimmen, ab der ein Lauf als konvergiert gilt. Dieser Verzicht auf einen laufzeitgesteuerten
+Abbruch hat drei Gründe. Der erste ist die Vorgeschichte: In früheren
+Läufen, deren Reward-Struktur noch eine andere war, griff das Kriterium
+sehr früh, sodass die Läufe nach wenigen Dutzend Episoden endeten und über
+den weiteren Verlauf nichts mehr auszusagen war. Die übrigen beiden Gründe
+betreffen die Vergleichbarkeit. Nur bei gleichem
+Budget ist gewährleistet, dass alle 24 Matchups tatsächlich vergleichbar sind: Ein
+früh abgebrochener Lauf hätte strukturell weniger Gelegenheit zum Lernen
+gehabt als ein durchgelaufener. Und die Konvergenzepisode ist selbst die
+abhängige Variable dieser Arbeit. Würde das Training beim Erreichen des
+Kriteriums beendet, ließe sich nicht mehr prüfen, ob die damit unterstellte
+Konvergenz tatsächlich gehalten hätte. Die gemessene Konvergenzepisode wäre
+dann nichts anderes als der Zeitpunkt, zu dem der Abbruch ausgelöst wurde, und
+keine aus dem weiteren Verlauf bestätigte Eigenschaft des Lernens.
+
+Das Kriterium setzt ein unveränderliches Ziel voraus. Diese Annahme ist in
+Phase~2 erfüllt, weil der Angreifer eingefroren ist. Für Aufbauten, in denen
+beide Agenten gleichzeitig lernen, wäre es nicht zulässig.
+
+\section{Erhobene Metriken}
+\label{sec:metriken}
+
+Erhoben wird je Episode eine Reihe von Größen. Sie haben nicht denselben Rang:
+Drei von ihnen sind Zielgrößen, an denen die Fragestellung beantwortet wird;
+die übrigen dienen dazu, einen beobachteten Unterschied auf sein Zustandekommen
+zurückzuführen.
+
+\subsubsection{Zielgrößen}
+
+Der \emph{Konvergenzzeitpunkt} aus \Cref{sec:konvergenz} misst die
+Lerneffizienz, also wie schnell ein Verteidiger ein stabiles Verhalten
+erreicht, unabhängig davon, auf welchem Niveau. Eine ergänzende Metrik, die
+stattdessen einen Leistungsmeilenstein abbildet, nämlich die Episode, ab der
+der geglättete Verteidiger-Reward nicht mehr negativ ist, entfällt bewusst:
+Unter der Grundkopplung ist dieser Reward strukturell negativ
+(\Cref{sec:rewards}).
+
+Die \emph{Crown-Jewel-Quote} gibt den Anteil der Episoden an, in denen der
+Angreifer den Datenbankserver übernimmt. Sie misst die Wirksamkeit der
+Verteidigung unmittelbar und ist unabhängig von der Reward-Skala, kennt aber
+nur zwei Ausgänge.
+
+Feiner auflösend ist deshalb die \emph{Zahl der gehaltenen Knoten}, erhoben als
+größte Zahl gleichzeitig kompromittierter Systeme im Verlauf einer Episode. Sie
+unterscheidet einen Angreifer, der im Einstiegsknoten steckenbleibt, von einem,
+der bis kurz vor das Crown Jewel vordringt, und bildet damit auch Teilerfolge
+der Verteidigung ab, die die Crown-Jewel-Quote allein nicht sichtbar macht.
+
+\subsubsection{Größen zur Deutung}
+
+Der \emph{Episoden-Reward beider Agenten} ergibt, über die Episoden
+aufgetragen, das Paar von Lernkurven, aus dem der Konvergenzzeitpunkt
+abgeleitet wird. Als Wirksamkeitsmaß taugt er nicht: Er gibt an, wie wenig der
+Angreifer gewinnt, nicht wie zuverlässig ein Angriff verhindert wurde.
+Aufschlussreich ist vor allem der Abstand zwischen beiden Kurven. Der Reward
+des Angreifers entsteht allein aus dem Geschehen im Netz, der des Verteidigers
+zusätzlich aus Abwehrbonus und \ac{SLA}-Strafe. Weichen die Kurven
+voneinander ab, so misst der Abstand demnach, was den Verteidiger sein eigenes
+Vorgehen kostet.
+
+Die \emph{Zahl der Schritte mit \ac{SLA}-Bruch} beziffert diesen Anteil
+unmittelbar. Sie ist die Gegenrechnung zu jeder Verteidigungsleistung: Eine
+niedrige Crown-Jewel-Quote ist wenig wert, wenn sie mit einem über weite
+Strecken abgeriegelten Netz erkauft wurde.
+
+Die \emph{Aktionsstatistik} protokolliert, welche Aktionstypen beide Agenten
+gewählt haben, getrennt nach gültigen und ungültigen Aktionen. Aus ihr lassen
+sich Verhaltensänderungen ablesen, die der Reward allein nicht sichtbar macht,
+etwa eine Verschiebung zwischen Sperren und Neuaufsetzen im Verlauf eines
+Laufs. Mitgeschrieben werden außerdem der Abwehrbonus je Episode und die Zahl
+der dabei abgeschirmten Knoten. Für die Höhe des Rewards ist der Bonus
+bedeutungslos, für die Deutung nicht: Er ist die einzige Größe, die Prävention
+unmittelbar ausweist, und damit die Probe darauf, ob die in
+\Cref{sec:abwehrbonus} beabsichtigte Wirkung überhaupt eintritt.
+
+Alle genannten Größen werden je Episode mitgeschrieben und beschreiben damit
+zunächst den Trainingsverlauf. Im folgenden Abschnitt werden dieselben Größen
+ein zweites Mal erhoben, dann an einer fertig trainierten Policy.
+
+\section{Wirksamkeitsevaluation}
+\label{sec:evaluation}
+
+Das Training beantwortet, wie schnell ein Verteidiger stabil wird und welches
+Vorgehen er sich dabei aneignet. Es beantwortet nicht, wie gut der fertig
+trainierte Verteidiger ist. Ein Agent
+kann auf einem schlechten Niveau ebenso zuverlässig konvergieren wie auf einem
+guten. Für die Frage nach der Wirksamkeit ist deshalb ein zweiter Durchgang
+nötig, der von der Lerngeschwindigkeit vollständig getrennt ist.
+
+\subsection{Aufbau}
+
+In der Evaluation sind \emph{beide} Agenten eingefroren. Es findet keine
+Gewichtsanpassung mehr statt; die fertigen Policies werden nur noch
+ausgeführt. Gemessen wird damit das Ergebnis des Trainings, nicht sein
+Zustandekommen.
+
+Jeder der 120 Trainingsläufe wird in drei Stufen wiederholt, die sich
+ausschließlich im Verteidiger unterscheiden:
+
+\begin{description}
+  \item[Kein Verteidiger] Der Angreifer agiert ungehindert. Diese Stufe liefert
+    die Obergrenze dessen, was in der jeweiligen Topologie überhaupt zu
+    erreichen ist, und dient als Bezugsgröße.
+  \item[Zufallsverteidiger] Ein Agent, der in jedem Schritt gleichverteilt aus
+    dem Aktionsraum aus \Cref{tab:aktionsraum-def} zieht. Er handelt also,
+    ohne etwas gelernt zu haben.
+  \item[Trainierter Verteidiger] Das \ac{PPO}-Modell des jeweiligen Laufs.
+\end{description}
+
+Der Angreifer ist in allen drei Stufen derselbe und wird aus demselben
+Lauf-Ordner geladen wie das Verteidigermodell. Damit unterscheiden sich die
+Stufen tatsächlich nur im Verteidiger.
+
+Der Zufallsverteidiger ist dabei die eigentliche Messlatte, nicht das
+ungeschützte Netz. Dass ein Verteidiger besser abschneidet als gar keiner,
+sagt wenig; die Frage ist, ob das Gelernte über zufälliges Handeln hinausgeht.
+
+Je Zelle werden \num{25} Episoden mit derselben Episodenlänge von höchstens
+\num{2000} Schritten gespielt. Bei vier Topologien, sechs Angreifern, fünf
+Seeds und drei Stufen ergeben sich \num{360} Zellen und damit \num{9000}
+Episoden.
+
+\subsection{Auswertungsgrößen}
+
+Als Hauptgröße dient der \emph{Restanteil}: der Angreifer-Reward mit
+Verteidiger, geteilt durch den Angreifer-Reward ohne Verteidiger, jeweils im
+selben Matchup. Ein Wert von 100~Prozent bedeutet, dass der Verteidiger nichts
+bewirkt, ein Wert nahe null, dass der Angriff weitgehend unterbunden wird.
+Gebildet wird er in drei Stufen: zunächst der Median über die Episoden einer
+Zelle, dann der Median über die fünf Seeds, und erst danach das Verhältnis.
+Berechnet wird er für den trainierten und für den Zufallsverteidiger
+gleichermaßen, beide gegen dieselbe Stufe ohne Verteidiger. Die Differenz
+beider Restanteile ist der eigentliche Befund, denn sie beziffert, was das
+Training über zufälliges Handeln hinaus einbringt.
+
+Auf ein Mittel über die sechs Angreifer wird bewusst verzichtet. Deren
+erreichbare Niveaus liegen weit auseinander, und beide naheliegenden
+Aggregationen verzerren in unterschiedliche Richtungen: Ein Verhältnis der
+Summen wird vom stärksten Angreifer bestimmt, ein Mittel der Einzelverhältnisse
+vom schwächsten. Die Ergebnisse werden deshalb je Matchup ausgewiesen.
+
+Ergänzend dienen dieselben beiden Zielgrößen wie im Training, die Zahl der vom
+Angreifer gehaltenen Knoten und die Crown-Jewel-Quote. Der Restanteil sagt, um
+welchen Faktor der Ertrag des Angreifers schrumpft, aber nicht, woran das
+liegt; ein halbierter Reward kann bedeuten, dass der Angreifer auf halbem Weg
+stehen blieb, oder dass er zwar durchkam, aber deutlich länger brauchte. Erst
+die beiden Zielgrößen entscheiden zwischen diesen Fällen.

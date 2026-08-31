@@ -1,0 +1,33 @@
+% AUTOMATISCH ERZEUGT von gen_topologie_figuren.py -- nicht von Hand aendern.
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[topofig, scale=1.0]
+  \node[entrynode] (WebServer) at (0.0,1.6) {WebServer\\[-1pt]{\tiny 0\,P \textbar\ --}};
+  \node[netnode] (Workstation1) at (2.4,1.6) {WS1\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (Workstation2) at (4.8,1.6) {WS2\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (Workstation3) at (7.2,1.6) {WS3\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (MailServer) at (9.6,1.6) {MailServer\\[-1pt]{\tiny 15\,P \textbar\ HTTPS}};
+  \node[netnode] (FileServer) at (9.6,0.0) {FileServer\\[-1pt]{\tiny 20\,P \textbar\ SMB}};
+  \node[netnode] (AppServer) at (7.2,0.0) {AppServer\\[-1pt]{\tiny 15\,P \textbar\ HTTP}};
+  \node[netnode] (BackupServer) at (4.8,0.0) {BackupServer\\[-1pt]{\tiny 25\,P \textbar\ SMB}};
+  \node[dcnode] (DomainController) at (2.4,0.0) {DomainCtrl\\[-1pt]{\tiny 30\,P \textbar\ RDP}};
+  \node[cjnode] (DatabaseServer) at (0.0,0.0) {DatenbankSrv\\[-1pt]{\tiny 100\,P \textbar\ SQL}};
+  \draw[reach] (WebServer) -- (Workstation1);
+  \draw[reach] (Workstation1) -- (Workstation2);
+  \draw[reach] (Workstation2) -- (Workstation3);
+  \draw[reach] (Workstation3) -- (MailServer);
+  \draw[reach] (MailServer) -- (FileServer);
+  \draw[reach] (FileServer) -- (AppServer);
+  \draw[reach] (AppServer) -- (BackupServer);
+  \draw[reach] (BackupServer) -- (DomainController);
+  \draw[reach] (DomainController) -- (DatabaseServer);
+  \draw[cred] (WebServer) to[bend right=14] (Workstation1);
+  \draw[cred] (Workstation1) to[bend right=14] (Workstation2);
+  \draw[cred] (Workstation2) to[bend right=14] (Workstation3);
+  \draw[cred] (Workstation3) to[bend right=14] (MailServer);
+  \draw[cred] (MailServer) to[bend right=14] (FileServer);
+  \draw[cred] (FileServer) to[bend right=14] (AppServer);
+  \draw[cred] (AppServer) to[bend right=14] (BackupServer);
+  \draw[cred] (BackupServer) to[bend right=14] (DomainController);
+  \draw[cred] (DomainController) to[bend right=14] (DatabaseServer);
+\end{tikzpicture}
+\end{adjustbox}

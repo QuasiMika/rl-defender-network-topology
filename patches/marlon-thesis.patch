@@ -1,0 +1,3633 @@
+diff -ruN a/.gitignore b/.gitignore
+--- a/.gitignore	2026-08-31 11:34:08.309429243 +0200
++++ b/.gitignore	2026-08-31 11:34:08.340891084 +0200
+@@ -1,5 +1,2 @@
+ __pycache__/
+-*.pkl
+-*.zip
+-*.csv
+-*.xlsx
++models/uploads/
+diff -ruN a/marlon/baseline_models/env_wrappers/attack_wrapper.py b/marlon/baseline_models/env_wrappers/attack_wrapper.py
+--- a/marlon/baseline_models/env_wrappers/attack_wrapper.py	2026-08-31 11:34:08.314440199 +0200
++++ b/marlon/baseline_models/env_wrappers/attack_wrapper.py	2026-08-31 11:34:08.332448718 +0200
+@@ -7,9 +7,9 @@
+ import plotly.graph_objects as go
+ from plotly.subplots import make_subplots
+ 
+-import gym
+-from gym import spaces
+-from gym.spaces.space import Space
++import gymnasium as gym
++from gymnasium import spaces
++from gymnasium.spaces import Space
+ 
+ from cyberbattle._env.cyberbattle_env import Action, CyberBattleEnv, EnvironmentBounds, Observation
+ from cyberbattle.simulation import commandcontrol, model
+@@ -17,6 +17,26 @@
+ from marlon.baseline_models.env_wrappers.environment_event_source import IEnvironmentObserver, EnvironmentEventSource
+ from marlon.baseline_models.env_wrappers.reward_store import IRewardStore
+ 
++# Haltebonus je Zeitschritt als Anteil des Werts gehaltener Knoten.
++# 0,005 bedeutet: Der Crown Jewel (Wert 100) bringt 0,5 je Schritt, eine
++# Workstation (Wert 10) entsprechend 0,05.
++#
++# Die Rate haengt mit dem Abwehrbonus des Verteidigers zusammen
++# (defend_wrapper.ABWEHR_RATE). Der Verteidiger steht vor der Wahl, einen
++# kompromittierten Knoten Q neu aufzusetzen oder ihn liegen zu lassen und
++# stattdessen einen bedrohten Knoten Z abzuschirmen. Je Schritt kostet ihn das
++# Liegenlassen HOLDING_RATE * Wert(Q) und bringt ihm das Abschirmen
++# ABWEHR_RATE * Wert(Z). Damit Neuaufsetzen auch im unguenstigsten Fall lohnt,
++# also billigster Quellknoten (10) gegen wertvollstes Ziel (100), muss gelten:
++#
++#     HOLDING_RATE > 10 * ABWEHR_RATE
++#
++# Mit 0,005 gegen 0,00025 liegt das Verhaeltnis bei 20, also mit Sicherheits-
++# abstand. Bei den zuvor verwendeten 0,001 lag es bei 4; der Verteidiger haette
++# dann einen Arbeitsplatzrechner bewusst kompromittiert liegen lassen, um
++# weiter fuer das Abschirmen der Datenbank bezahlt zu werden.
++HOLDING_RATE = 0.005
++
+ class AttackerEnvWrapper(gym.Env, IRewardStore, IEnvironmentObserver):
+     """Wraps a CyberBattleEnv for stablebaselines-3 models to learn how to attack."""
+ 
+@@ -30,15 +50,22 @@
+         max_timesteps=2000,
+         invalid_action_reward_modifier=-1,
+         invalid_action_reward_multiplier=1,
+-        loss_reward=-5000):
++        loss_reward=-5000,
++        use_action_masking: bool = False):
+ 
+         super().__init__()
+-        self.cyber_env: CyberBattleEnv = cyber_env
+-        self.bounds: EnvironmentBounds = self.cyber_env._bounds
++        self.cyber_env: CyberBattleEnv = cyber_env.unwrapped if hasattr(cyber_env, 'unwrapped') else cyber_env
++        self.bounds: EnvironmentBounds = self.cyber_env.bounds
+         self.max_timesteps = max_timesteps
+         self.invalid_action_reward_modifier = invalid_action_reward_modifier
+         self.invalid_action_reward_multiplier = invalid_action_reward_multiplier
+         self.loss_reward = loss_reward
++        # Invalid-Action-Masking: flacher Discrete-Aktionsraum + action_masks().
++        self.use_action_masking = use_action_masking
++        # Rohe CBS-ActionMask aus dem letzten action_masks()-Aufruf. Wird im
++        # unmittelbar folgenden step() an is_action_valid() durchgereicht, damit
++        # die Maske nicht zweimal pro Step berechnet werden muss.
++        self._live_action_mask = None
+ 
+         # These should be set during reset()
+         self.timesteps = None
+@@ -46,14 +73,31 @@
+         self.rewards = [] # The rewards returned by this wrapper, after modification.
+ 
+         # Access protected members only in the ctor to avoid pylint warnings.
+-        self.node_count = cyber_env._CyberBattleEnv__node_count
+-        self.__get_privilegelevel_array = cyber_env._CyberBattleEnv__get_privilegelevel_array
++        self.node_count = self.cyber_env._CyberBattleEnv__node_count
+ 
+-        self.observation_space: Space = self.__create_observation_space(cyber_env)
+-        self.action_space: Space = self.__create_action_space(cyber_env)
++        # Je Quellknoten aufgedeckte Kanten: Menge von (Quellindex, Zielindex).
++        # Grundlage der zugeschnittenen Maske, siehe _flatten_action_mask.
++        self._entdeckte_kanten: set = set()
++        self.__get_privilegelevel_array = self.cyber_env._CyberBattleEnv__get_privilegelevel_array
++
++        # Der Beobachtungsgraph von CBS wird hier ohnehin verworfen.
++        # Aufbau abschalten spart rund ein Siebtel der Rechenzeit.
++        self.cyber_env.build_explored_network = False
++        self.observation_space: Space = self.__create_observation_space(self.cyber_env)
++        self.action_space: Space = self.__create_action_space(self.cyber_env)
+ 
+         self.valid_action_count = 0
+         self.invalid_action_count = 0
++        self._last_obs = None   # letzte transformierte Observation für Invalid-Fallback
++
++        # ── Action-Tracking (rein additiv, beeinflusst Reward/Training nicht) ──
++        # Crown Jewel = Knoten mit höchstem value (DatabaseServer, value=100).
++        self._cj_node = self.__find_crown_jewel()
++        self.episode_stats_log = []   # ein Snapshot pro Episode
++        self._ep_stats = self._blank_stats()
++        # Zero-Sum-Design: von mir gehaltene Knoten am Ende meines letzten Zuges,
++        # um zwischen den Zuegen reimagte (verlorene) Knoten zu bestrafen.
++        self._owned_prev = set()
+ 
+         # Add this object as an observer of the cyber env.
+         if event_source is None:
+@@ -64,6 +108,53 @@
+ 
+         self.reset_request = False
+ 
++    def __find_crown_jewel(self):
++        """Node-ID mit dem höchsten value (das Crown Jewel / Angriffsziel)."""
++        best_id, best_val = None, -1.0
++        for node_id, node_info in model.iterate_network_nodes(self.cyber_env.environment.network):
++            val = float(getattr(node_info, "value", 0.0))
++            if val > best_val:
++                best_id, best_val = node_id, val
++        return best_id
++
++    @staticmethod
++    def _blank_stats():
++        return {
++            "atk_invalid": 0,      # ungültige Aktionen (Step verfällt)
++            "atk_valid": 0,        # gültige Aktionen
++            "atk_cj_reached": 0,   # Crown Jewel in dieser Episode übernommen? (0/1)
++            "atk_cj_step": -1,     # Step der ersten CJ-Übernahme (-1 = nie)
++            "atk_won": 0,          # gesamtes Netz übernommen / Angreiferziel erreicht (0/1)
++            "atk_max_owned": 0,    # maximale Anzahl gleichzeitig besessener Knoten
++            # Zerlegung des Episoden-Rewards: Ohne diese beiden Summen laesst
++            # sich hinterher nicht mehr trennen, welcher Anteil aus Uebernahmen
++            # stammt und welcher aus Halten bzw. Verlusten. Es gilt
++            #   episode_reward = CBS-Basis + atk_hold_reward - atk_eviction
++            "atk_hold_reward": 0.0,  # Summe des Haltebonus ueber die Episode
++            "atk_eviction": 0.0,     # Summe der Eviction-Strafen (positiv notiert)
++        }
++
++    def __owned_node_ids(self):
++        """Menge aktuell besessener Knoten-IDs (Knotennamen).
++
++        WICHTIG: Das CBS-Privilege-Array ist nach ENTDECKUNGSREIHENFOLGE
++        indiziert – __get_privilegelevel_array() iteriert in cyberbattle_env
++        ueber __discovered_nodes und polstert danach mit 0 auf. Es ist NICHT
++        nach list(network.nodes) indiziert.
++
++        Frueher wurde der Index faelschlich ueber list(network.nodes)
++        aufgeloest. Bei nur teilweise uebernommenen Netzen (z.B.
++        micro_segmented) ergab das falsche Knotennamen und verfaelschte
++        CJ-Erkennung, max_owned-Identitaet UND den Zero-Sum-Eviction-Term.
++        """
++        owned = set()
++        priv = self.__get_privilegelevel_array()
++        discovered = self.cyber_env._CyberBattleEnv__discovered_nodes
++        for idx in np.nonzero(priv)[0]:
++            if idx < len(discovered):
++                owned.add(discovered[idx])
++        return owned
++
+     def __create_observation_space(self, cyber_env: CyberBattleEnv) -> gym.Space:
+         observation_space = cyber_env.observation_space.__dict__['spaces'].copy()
+ 
+@@ -78,9 +169,12 @@
+         observation_space['remote_vulnerability'] = spaces.MultiBinary(self.node_count * self.node_count * self.bounds.remote_attacks_count)
+ 
+         # Remove 'info' fields added by cyberbattle that do not represent algorithm inputs
+-        del observation_space['credential_cache']
+-        del observation_space['discovered_nodes']
+-        del observation_space['explored_network']
++        # (key names changed between CBS versions)
++        for key in ['credential_cache', 'credential_cache_length', 'discovered_nodes',
++                    '_discovered_nodes', 'explored_network', '_explored_network',
++                    'discovered_node_count']:
++            if key in observation_space:
++                del observation_space[key]
+ 
+         # TODO: Reformat these spaces so they don't have to be removed
+         # Remove nested Tuple/Dict spaces
+@@ -94,9 +188,26 @@
+         # This is incorrectly set to spaces.MultiDiscrete(model.PrivilegeLevel.MAXIMUM + 1), when it is only one value
+         observation_space['escalation'] = spaces.Discrete(model.PrivilegeLevel.MAXIMUM + 1)
+ 
++        # Replace 2D MultiDiscrete spaces with flat Box spaces to match what
++        # transform_observation actually returns (1D arrays) and to avoid
++        # SB3 2.x computing a non-scalar features_dim for 2D nvec.
++        node_count = int(self.bounds.maximum_node_count)
++        observation_space['discovered_nodes_properties'] = spaces.Box(
++            low=0, high=2,
++            shape=(node_count * int(self.bounds.property_count),),
++            dtype=np.float32
++        )
++        observation_space['nodes_privilegelevel'] = spaces.Box(
++            low=0, high=int(model.PrivilegeLevel.MAXIMUM),
++            shape=(node_count,),
++            dtype=np.float32
++        )
++
+         return spaces.Dict(observation_space)
+ 
+     def __create_action_space(self, cyber_env: CyberBattleEnv) -> gym.Space:
++        if self.use_action_masking:
++            return self.__create_flat_action_space(cyber_env)
+         self.action_subspaces = {}
+         # First action defines which action subspace to use
+         # local_vulnerability, remote_vulnerability, or connect
+@@ -110,7 +221,12 @@
+         for (key, value) in cyber_env.action_space.spaces.items():
+             subspace_start = len(action_space)
+             for vec in value.nvec:
+-                action_space.append(vec)
++                # CBS uses maximum_node_count (e.g. 100) for node-index dims,
++                # but the network only has node_count (e.g. 10) real nodes.
++                # Cap node-index dims to node_count so the agent only picks
++                # valid indices and exploration is not wasted on empty space.
++                dim = self.node_count if int(vec) == self.bounds.maximum_node_count else int(vec)
++                action_space.append(dim)
+ 
+             # Action subspace takes the form:
+             # [('subspace_name', 1, 3), ('subspace_name2', 3, 5)]
+@@ -119,17 +235,147 @@
+ 
+         return spaces.MultiDiscrete(action_space)
+ 
++    # ── Flacher Discrete-Aktionsraum + Masking ────────────────────────────────
++    def __create_flat_action_space(self, cyber_env: CyberBattleEnv) -> gym.Space:
++        """Faltet die faktorisierten CBS-Subräume in ein einziges Discrete(N).
++
++        Jede vollständige Aktion (Typ + Parameter) bekommt einen Index. Die
++        Layout-Liste _mask_layout speichert je Subraum (key, dims, offset, size)
++        für Decode und Maskenaufbau. Node-Dimensionen werden auf node_count
++        begrenzt (wie in der MultiDiscrete-Variante)."""
++        self._mask_layout = []
++        offset = 0
++        for key, value in cyber_env.action_space.spaces.items():
++            dims = tuple(self.node_count if int(v) == self.bounds.maximum_node_count else int(v)
++                         for v in value.nvec)
++            size = int(np.prod(dims))
++            self._mask_layout.append((key, dims, offset, size))
++            offset += size
++        self._flat_action_total = offset
++        return spaces.Discrete(offset)
++
++    def _decode_flat_action(self, idx: int) -> Dict[str, Any]:
++        """Flacher Index -> nested CBS-Aktion {subspace: [params...]}."""
++        idx = int(idx)
++        for key, dims, offset, size in self._mask_layout:
++            if idx < offset + size:
++                params = np.unravel_index(idx - offset, dims)
++                return {key: np.array(params, dtype=np.int64)}
++        raise ValueError(f"Flache Aktion {idx} ausserhalb des Bereichs {self._flat_action_total}")
++
++    def _kanten_nachtragen(self, translated_action, bekannt_vorher: int) -> None:
++        """Vermerkt Kanten, die dieser Zug aufgedeckt hat.
++
++        Nur ScanHostDiscovery deckt Nachbarn auf, und das ist eine lokale
++        Aktion auf einem eigenen Knoten. Erbeutete Zugangsdaten legen bewusst
++        keine Kante an: Ein Passwort zu kennen heisst nicht, den Rechner
++        erreichen zu koennen. Genau diese Trennung ist das Kernmerkmal des
++        Topologiemodells.
++
++        Massgeblich ist, was ScanHostDiscovery auf diesem Knoten laut Topologie
++        preisgibt, NICHT welche Knoten dieser Zug neu in die Entdeckungsliste
++        gebracht hat. Der Unterschied ist entscheidend: ScanLocalCredentials
++        traegt die Knoten, zu denen der Angreifer ein Passwort erbeutet hat,
++        ebenfalls in dieselbe Liste ein. Scannt er auf einem Knoten erst die
++        Zugangsdaten und danach die Nachbarn, meldet der Nachbarscan nichts
++        Neues mehr -- die Kante entstuende dann nie. In dmz betraf das genau
++        AppServer->DomainController: der AppServer haelt die DC-Zugangsdaten,
++        und der Angreifer blieb dauerhaft bei drei von zehn Knoten stehen.
++        """
++        if "local_vulnerability" not in translated_action:
++            return
++
++        entdeckt = self.cyber_env._CyberBattleEnv__discovered_nodes
++        quelle = int(translated_action["local_vulnerability"][0])
++        vuln_index = int(translated_action["local_vulnerability"][1])
++        try:
++            vuln_id = self.cyber_env._CyberBattleEnv__index_to_local_vulnerabilityid(vuln_index)
++            quell_id = entdeckt[quelle]
++        except (IndexError, AttributeError):
++            return
++        if vuln_id != "ScanHostDiscovery":
++            return
++
++        try:
++            knoten = self.cyber_env.environment.get_node(quell_id)
++        except (KeyError, AttributeError):
++            return
++        info = knoten.vulnerabilities.get("ScanHostDiscovery")
++        nachbarn = getattr(getattr(info, "outcome", None), "nodes", None)
++        if not nachbarn:
++            return
++
++        for name in nachbarn:
++            try:
++                ziel = entdeckt.index(name)
++            except ValueError:
++                continue   # Nachbar (noch) nicht in der Entdeckungsliste
++            self._entdeckte_kanten.add((quelle, ziel))
++
++    def _flatten_action_mask(self, am) -> np.ndarray:
++        """Boolescher Vektor der Laenge N: welche flachen Aktionen sind gueltig?
++        Quelle: CBS ActionMask (dict mit einem Bitfeld je Subraum)."""
++        parts = []
++        for key, dims, offset, size in self._mask_layout:
++            m = np.asarray(am[key])
++            m = m[tuple(slice(0, d) for d in dims)]   # Node-Dims auf node_count begrenzen
++            m = m.astype(bool).copy()
++
++            # Zuschnitt auf tatsaechlich aufgedeckte Kanten. Betrifft nur die
++            # Subraeume mit Quelle UND Ziel; lokale Aktionen bleiben unberuehrt,
++            # weil sie auf dem eigenen Knoten stattfinden.
++            if key in ("connect", "remote_vulnerability") and m.ndim >= 2:
++                erlaubt = np.zeros(m.shape[:2], dtype=bool)
++                for (q, z) in self._entdeckte_kanten:
++                    if q < erlaubt.shape[0] and z < erlaubt.shape[1]:
++                        erlaubt[q, z] = True
++                m &= erlaubt.reshape(erlaubt.shape + (1,) * (m.ndim - 2))
++
++            parts.append(m.reshape(-1))
++        flat = np.concatenate(parts)
++        if not flat.any():
++            # Sicherheitsnetz: MaskablePPO braucht >=1 gueltige Aktion.
++            flat[0] = True
++        return flat
++
++    def action_masks(self) -> np.ndarray:
++        """Von MaskablePPO unmittelbar vor jedem predict abgefragt.
++
++        Berechnet die Maske LIVE aus dem aktuellen Env-Zustand statt aus einem
++        Cache. Notwendig, weil zwischen zwei Angreiferzuegen der Defender agiert
++        (Reimage/Block/Stop-Service): eine im eigenen step() gecachte Maske waere
++        um genau diesen Defender-Zug veraltet. Der Angreifer wuerde dann Aktionen
++        waehlen, die is_action_valid() - das seinerseits live prueft - verwirft;
++        genau daher kamen trotz Masking ungueltige Aktionen.
++
++        Die rohe Maske wird fuer den direkt folgenden step() zwischengespeichert,
++        damit is_action_valid() sie nicht ein zweites Mal berechnen muss.
++        """
++        am = self.cyber_env.compute_action_mask()
++        self._live_action_mask = am
++        return self._flatten_action_mask(am)
++
+     def __get_owned_nodes(self):
+         return np.nonzero(self.__get_privilegelevel_array())[0]
+ 
+     def step(self, action: Action) -> Tuple[Observation, float, bool, Dict[str, Any]]:
+-        # The first action value corresponds to the subspace
+-        action_subspace = self.action_subspaces[action[0]]
+-
+-        # Translate the flattened action back into the nested
+-        # subspace action for CyberBattle. It takes the form:
+-        # {'subspace_name': [0, 1, 2]}
+-        translated_action = {action_subspace[0]: action[action_subspace[1]:action_subspace[2]]}
++        if self.use_action_masking:
++            # Discrete(N): ein Integer -> nested CBS-Aktion.
++            translated_action = self._decode_flat_action(action)
++            # Maske aus action_masks() dieses Zuges wiederverwenden (gleicher
++            # Zustand, da zwischen predict und step nichts passiert). Nur einmal
++            # verwenden; ohne Cache faellt is_action_valid() auf Neuberechnung
++            # zurueck (None) und bleibt damit trotzdem korrekt.
++            mask_for_check = self._live_action_mask
++            self._live_action_mask = None
++        else:
++            mask_for_check = None
++            # MultiDiscrete: erster Wert waehlt den Subraum.
++            action_subspace = self.action_subspaces[action[0]]
++            # Translate the flattened action back into the nested
++            # subspace action for CyberBattle. It takes the form:
++            # {'subspace_name': [0, 1, 2]}
++            translated_action = {action_subspace[0]: action[action_subspace[1]:action_subspace[2]]}
+ 
+         # For reference:
+         # ```python
+@@ -147,61 +393,94 @@
+         # }
+         # ```
+ 
++        # ── Eviction-Penalty (Zero-Sum-Design) ────────────────────────────
++        # Zwischen meinen Zuegen reimagte (verlorene) Knoten kosten ihren Value.
++        _owned_jetzt = self.__owned_node_ids()
++        _lost = self._owned_prev - _owned_jetzt
++        eviction = sum(float(self.cyber_env.environment.get_node(n).value)
++                       for n in _lost) if _lost else 0.0
++
++        # WICHTIG (Korrektur 17.08.2026): CBS merkt sich in last_owned_at, dass
++        # ein Knoten schon einmal uebernommen wurde, und setzt das bei einem
++        # Reimage NICHT zurueck. Eine Wiedereroberung brachte dem Angreifer
++        # deshalb 0, waehrend jeder Verlust den vollen Value kostete. Ueber die
++        # Zero-Sum-Kopplung wurde daraus eine Farm fuer den Verteidiger: Er
++        # reimagte denselben Knoten wieder und wieder und kassierte jedes Mal
++        # dessen Wert. Gemessen: bis zu 268 zurueckgewonnene Knoten je Episode
++        # bei zehn vorhandenen, Korrelation Reimages/Reward bis r = +0,98.
++        # Durch das Zuruecksetzen zaehlt jede Wiedereroberung erneut als erste;
++        # der Zyklus aus Verlust und Rueckeroberung ist damit fuer beide Seiten
++        # ein Nullsummengeschaeft. Der Verteidiger behaelt seinen Gewinn nur,
++        # wenn der Angreifer den Knoten NICHT zurueckholt.
++        if _lost:
++            _tracking = getattr(self.cyber_env._actuator, "_discovered_nodes", None)
++            if _tracking is not None:
++                for _n in _lost:
++                    if _n in _tracking:
++                        _tracking[_n].last_owned_at = None
++
++        # ── Haltebonus ────────────────────────────────────────────────────
++        # Je Zeitschritt ein Anteil des Werts aller aktuell gehaltenen Knoten.
++        # Begruendung: Der Schaden eines kompromittierten Systems haengt davon
++        # ab, wie wertvoll es ist UND wie lange der Angreifer darauf sitzt. Ein
++        # fester Betrag je Knoten wuerde Arbeitsplatzrechner und Produktions-
++        # datenbank gleichsetzen. Der Einstiegsknoten traegt den Wert 0 und
++        # faellt dadurch automatisch heraus.
++        holding = HOLDING_RATE * sum(
++            float(self.cyber_env.environment.get_node(n).value) for n in _owned_jetzt
++        ) if _owned_jetzt else 0.0
++
++        # Beide Anteile mitschreiben, damit der Episoden-Reward hinterher
++        # zerlegbar bleibt (siehe _blank_stats).
++        self._ep_stats["atk_hold_reward"] += holding
++        self._ep_stats["atk_eviction"] += eviction
++
+         # First, check if the action is valid.
+-        reward_modifier = 0
+-        if not self.cyber_env.is_action_valid(translated_action):
+-            # If it is not valid, we will try picking a random valid node and hoping
+-            # that makes the action valid.
+-
+-            # Pick source node at random (owned and with the desired feature encoding)
+-            potential_source_nodes = [
+-                from_node
+-                for from_node in self.__get_owned_nodes()
+-                #if np.all(actor_features == self.node_specific_features.get(wrapped_env.state, from_node))
+-            ]
+-
+-            if len(potential_source_nodes) > 0:
+-                source_node = np.random.choice(potential_source_nodes)
+-
+-                if action_subspace[0] == 'local_vulnerability':
+-                    # Replace node from the algorithm with a valid node.
+-                    translated_action[action_subspace[0]][0] = source_node
+-                else:
+-                    # Target node can be any potential node excluding source node.
+-                    potential_source_nodes.remove(source_node)
+-
+-                    if len(potential_source_nodes) > 0:
+-                        target_node = np.random.choice(potential_source_nodes)
+-
+-                        # Replace source and target node from the algorithm with valid nodes.
+-                        translated_action[action_subspace[0]][0] = source_node
+-                        translated_action[action_subspace[0]][1] = target_node
+-                    else:
+-                        # No potential target nodes
+-                        pass
+-            else:
+-                # No potential source nodes
+-                pass
+-
+-        # If the action is still invalid, sample a random valid action.
+-        # TODO: Try invalid action masks instead of sampling a random valid action; 'Dynamic action spaces'.
+-        # https://sb3-contrib.readthedocs.io/en/master/modules/ppo_mask.html
+-        is_invalid = False
+-        if not self.cyber_env.is_action_valid(translated_action):
+-            # sample local and remote actions only (excludes connect action)
+-            translated_action = self.cyber_env.sample_valid_action(kinds=[0, 1, 2])
++        reward_modifier = holding - eviction
++        if not self.cyber_env.is_action_valid(translated_action, mask_for_check):
++            # Ungültige Aktion: Env NICHT berühren, letzte Observation zurückgeben.
++            # CBS würde ValueError werfen (z.B. "Agent does not owned the node"),
++            # der nicht intern abgefangen wird.
+             self.invalid_action_count += 1
+-
++            self._ep_stats["atk_invalid"] += 1
+             reward_modifier += self.invalid_action_reward_modifier
+-            is_invalid = True
+-        else:
+-            self.valid_action_count += 1
+ 
+-        observation, reward, done, info = self.cyber_env.step(translated_action)
++            self.timesteps += 1
++            done = self.reset_request or self.timesteps > self.max_timesteps
++            self.cyber_rewards.append(0.0)
++            self.rewards.append(reward_modifier)
++            if done:
++                self.episode_stats_log.append(dict(self._ep_stats))
++            self._owned_prev = self.__owned_node_ids()
++            return self._last_obs, reward_modifier, done, False, {}
++
++        self.valid_action_count += 1
++        self._ep_stats["atk_valid"] += 1
++
++        # Welche Knoten waren VOR dem Zug bekannt? Alles, was danach neu
++        # dazukommt, wurde durch genau diesen Zug aufgedeckt und gehoert
++        # damit dem Quellknoten dieses Zuges zu.
++        _bekannt_vorher = len(self.cyber_env._CyberBattleEnv__discovered_nodes)
++
++        observation, reward, terminated, truncated, info = self.cyber_env.step(translated_action)
++
++        self._kanten_nachtragen(translated_action, _bekannt_vorher)
++        done = terminated or truncated
++        # Kein Masken-Cache mehr: action_masks() berechnet die Maske beim
++        # naechsten predict live, damit der zwischenzeitliche Defender-Zug
++        # beruecksichtigt ist.
+         transformed_observation = self.transform_observation(observation)
++        self._last_obs = transformed_observation
+         self.cyber_rewards.append(reward)
+ 
+-        if done:
++        # Action-Tracking: eroberte Knoten und Crown-Jewel-Übernahme verfolgen
++        owned = self.__owned_node_ids()
++        self._ep_stats["atk_max_owned"] = max(self._ep_stats["atk_max_owned"], len(owned))
++        if self._cj_node is not None and self._cj_node in owned and self._ep_stats["atk_cj_reached"] == 0:
++            self._ep_stats["atk_cj_reached"] = 1
++            self._ep_stats["atk_cj_step"] = self.timesteps + 1
++        if terminated:
++            self._ep_stats["atk_won"] = 1
+             logging.warning("Attacker Won")
+ 
+         self.timesteps += 1
+@@ -211,22 +490,22 @@
+         if self.timesteps > self.max_timesteps:
+             done = True
+ 
+-        # If action was invalid, multiplier is applied before reward modifier
+-        if is_invalid:
+-            reward = reward * self.invalid_action_reward_multiplier
+-
+         reward += reward_modifier
+         self.rewards.append(reward)
+ 
+-        return transformed_observation, reward, done, info
++        if done:
++            self.episode_stats_log.append(dict(self._ep_stats))
++
++        self._owned_prev = owned   # Bestand nach diesem Zug (fuer Eviction naechster Zug)
++        return transformed_observation, reward, done, False, info
+ 
+-    def reset(self) -> Observation:
++    def reset(self, **kwargs) -> Tuple[Observation, dict]:
+         logging.debug('Reset Attacker')
+         if not self.reset_request:
+             last_reward = self.rewards[-1] if len(self.rewards) > 0 else 0
+             self.event_source.notify_reset(last_reward)
+ 
+-        observation = self.cyber_env.reset()
++        observation, _ = self.cyber_env.reset()
+ 
+         self.reset_request = False
+         self.valid_action_count = 0
+@@ -234,8 +513,14 @@
+         self.timesteps = 0
+         self.cyber_rewards = []
+         self.rewards = []
+-
+-        return self.transform_observation(observation)
++        self._ep_stats = self._blank_stats()   # Action-Tracking für neue Episode
++        self._owned_prev = self.__owned_node_ids()   # Ausgangsbestand (Entry-Node)
++        self._live_action_mask = None   # Cache aus der Vorepisode verwerfen
++        self._entdeckte_kanten = set()  # Kantenwissen gilt nur je Episode
++
++        transformed = self.transform_observation(observation)
++        self._last_obs = transformed
++        return transformed, {}
+ 
+     def on_reset(self, last_rewards):
+         logging.info('on_reset Attacker')
+@@ -256,8 +541,8 @@
+ 
+         # TODO: Clean this up a bit, action masks are not needed here
+         observation['credential_cache_matrix'] = tuple(credential_cache_matrix)
+-        observation['discovered_nodes_properties'] = np.zeros((self.bounds.maximum_node_count * self.bounds.property_count,))
+-        observation['nodes_privilegelevel'] = np.zeros((self.bounds.maximum_node_count,))
++        observation['discovered_nodes_properties'] = np.zeros((self.bounds.maximum_node_count * self.bounds.property_count,), dtype=np.float32)
++        observation['nodes_privilegelevel'] = np.zeros((self.bounds.maximum_node_count,), dtype=np.float32)
+ 
+         # Flatten action_mask subspaces
+         # local_vulnerability comes in shape (node_count, local_attacks_count,)
+@@ -276,15 +561,17 @@
+         flat_index = 0
+         for i in range(self.node_count):
+             for j in range(self.node_count):
+-                for k in range(self.bounds.local_attacks_count):
++                for k in range(self.bounds.remote_attacks_count):
+                     remote_vulnerability[flat_index] = observation['remote_vulnerability'][i][j][k]
+                     flat_index += 1
+         observation['remote_vulnerability'] = remote_vulnerability
+ 
+         # Remove 'info' fields added by cyberbattle that do not represent algorithm inputs
+-        del observation['credential_cache']
+-        del observation['discovered_nodes']
+-        del observation['explored_network']
++        for key in ['credential_cache', 'credential_cache_length', 'discovered_nodes',
++                    '_discovered_nodes', 'explored_network', '_explored_network',
++                    'discovered_node_count']:
++            if key in observation:
++                del observation[key]
+ 
+         # Stable baselines does not like numpy wrapped ints
+         for space in self.int32_spaces:
+diff -ruN a/marlon/baseline_models/env_wrappers/defend_wrapper.py b/marlon/baseline_models/env_wrappers/defend_wrapper.py
+--- a/marlon/baseline_models/env_wrappers/defend_wrapper.py	2026-08-31 11:34:08.314582886 +0200
++++ b/marlon/baseline_models/env_wrappers/defend_wrapper.py	2026-08-31 11:34:08.332572954 +0200
+@@ -6,9 +6,9 @@
+ 
+ from plotly.missing_ipywidgets import FigureWidget
+ 
+-import gym
+-from gym import spaces
+-from gym.spaces.space import Space
++import gymnasium as gym
++from gymnasium import spaces
++from gymnasium.spaces import Space
+ 
+ from cyberbattle.simulation import model
+ from cyberbattle._env.cyberbattle_env import CyberBattleEnv, EnvironmentBounds, Observation
+@@ -28,6 +28,10 @@
+     nested_spaces = ['credential_cache_matrix', 'leaked_credentials']
+     other_removed_spaces = ['local_vulnerability', 'remote_vulnerability', 'connect']
+     int32_spaces = ['customer_data_found', 'escalation', 'lateral_move', 'newly_discovered_nodes_count', 'probe_result']
++    # Fruehere Fassung: fest verdrahtet ["RDP","SSH","HTTPS","HTTP","su","sudo"].
++    # Sie passte nicht zu unseren Topologien; SMB und SQL fehlten, wodurch
++    # Datenbank-, Backup- und Dateiserver nicht sperrbar waren. Die Liste wird
++    # jetzt je Umgebung gesetzt (siehe __init__).
+     firewall_rule_list = ["RDP", "SSH", "HTTPS", "HTTP", "su", "sudo"]
+ 
+     def __init__(self,
+@@ -41,11 +45,20 @@
+ 
+         super().__init__()
+         self.defender = None
+-        self.cyber_env: CyberBattleEnv = cyber_env
+-        self.bounds: EnvironmentBounds = self.cyber_env._bounds
++        self.cyber_env: CyberBattleEnv = cyber_env.unwrapped if hasattr(cyber_env, 'unwrapped') else cyber_env
++        self.bounds: EnvironmentBounds = self.cyber_env.bounds
++        # Portliste aus der Umgebung, damit Aktionsindex und Port zusammenpassen.
++        self.firewall_rule_list = list(self.cyber_env.environment.identifiers.ports)
++        # Der Beobachtungsgraph von CBS wird hier ohnehin verworfen.
++        # Aufbau abschalten spart rund ein Siebtel der Rechenzeit.
++        self.cyber_env.build_explored_network = False
++        # Echte Vorgaengerknoten je Ziel, vom Topologie-Generator am
++        # Netzgraphen hinterlegt. Grundlage des Abwehrbonus.
++        self._adjazenz = self.cyber_env.environment.network.graph.get(
++            "thesis_adjacency")
+         self.num_services = 0
+-        self.observation_space: Space = self.__create_observation_space(cyber_env)
+-        self.action_space: Space = self.__create_defender_action_space(cyber_env)
++        self.observation_space: Space = self.__create_observation_space(self.cyber_env)
++        self.action_space: Space = self.__create_defender_action_space(self.cyber_env)
+         self.network_availability: float = 1.0
+         self.valid_action_count = 0
+         self.invalid_action_count = 0
+@@ -63,9 +76,56 @@
+         self.event_source = event_source
+         event_source.add_observer(self)
+         assert defender is not None, "Attempting to use the defender environment without a defender present."
+-        self.defender: LearningDefender = LearningDefender(cyber_env)
++        self.defender: LearningDefender = LearningDefender(self.cyber_env)
+         self.__last_attacker_reward = None
+         self.reset_on_constraint_broken = reset_on_constraint_broken
++        self._constraint_broken_logged = False   # einmaliges Logging pro Episode
++
++        # Der Verteidiger-Reward ist vollstaendig an den des Angreifers
++        # gekoppelt (siehe step()). Eigene Beitraege gibt es nur als Abzug.
++        #
++        # ENTFERNT 17.08.2026: ein frueherer "delta"-Modus mit +100 je Reimage
++        # und -1 je gehaltenem Knoten. Er war seit Umstellung auf die Kopplung
++        # toter Code -- die Konstanten standen noch hier und stifteten
++        # Verwirrung, weil sie wie ein aktiver Haltebonus aussahen. Der
++        # tatsaechliche Haltebonus sitzt seit dem Reward-Umbau auf der
++        # Angreiferseite (attack_wrapper.HOLDING_RATE) und erreicht den
++        # Verteidiger ueber die Kopplung.
++        # Abwehrbonus je Schritt als Anteil des Werts abgeschirmter Knoten.
++        # Obergrenze: Damit eine Rueckeroberung (einmalig der volle Knotenwert
++        # ueber die Kopplung) lukrativer bleibt als dauerhaftes Abschirmen,
++        # muss RATE * Episodenlaenge < 1 gelten. Bei 2000 Schritten also
++        # RATE < 0,0005; gewaehlt ist die Haelfte davon.
++        self.ABWEHR_RATE = 0.00025
++
++        # Abzug je Zeitschritt, in dem die Netzverfuegbarkeit unter der
++        # SLA-Schwelle liegt. Ergaenzend, nicht ersetzend (siehe step()).
++        self._SLA_BREACH_PENALTY = -50.0
++        # Entry-Node (WebServer) ist von Anfang an owned – als Baseline abziehen
++        self._baseline_owned  = 0    # wird in reset() gesetzt
++
++        # ── Action-Tracking (rein additiv, beeinflusst Reward/Training nicht) ──
++        # Pro Episode werden Aktionszähler und Ereignisse gesammelt; bei
++        # Episodenende als Snapshot in episode_stats_log abgelegt. simulate.py
++        # schreibt sie index-aligned neben episode_reward/-length in die CSV.
++        self.episode_stats_log = []   # [{...}, ...] – ein Eintrag pro Episode
++        self._ep_stats = self._blank_stats()
++
++    @staticmethod
++    def _blank_stats():
++        return {
++            "def_reimage": 0,          # REIMAGE-Aktionen (gültig)
++            "def_block": 0,            # BLOCK_TRAFFIC (gültig)
++            "def_allow": 0,            # ALLOW_TRAFFIC (gültig)
++            "def_stop_svc": 0,         # STOP_SVC gesamt (gültig)
++            "def_stop_svc_clean": 0,   # STOP_SVC auf NICHT kompromittiertem Node ("durfte er nicht")
++            "def_start_svc": 0,        # START_SVC (gültig)
++            "def_invalid": 0,          # ungültige Aktionen (Runde übersprungen)
++            "def_recovered": 0,        # Summe zurückgewonnener Knoten (Reimage-Erfolge)
++            "def_abwehr_reward": 0.0,  # Summe des Abwehrbonus über die Episode
++            "def_abgeschirmt": 0,      # Summe abgeschirmter Knoten über alle Schritte
++            "def_sla_break_steps": 0,  # Steps, in denen die SLA verletzt war
++        }
+ 
+     def __create_observation_space(self, cyber_env: CyberBattleEnv) -> gym.Space:
+         """Creates a compatible version of the attackers observation space."""
+@@ -86,44 +146,85 @@
+         # Index 5, 6, 7 relate to action 2 (allow traffic), 5th = node to allow on, 6th = Port to allow, 7th = incoming or outgoing
+         # Index 8 and 9 are for action 3 (stop service), 8th = node to stop service on, 9th = port to stop service
+         # Index 10 and 11 are for action 4 (start service), 10th = node to start service on, 11th = port to start service on.
+-        total_actions = 5
++        # Nur noch Reimage, Sperren, Freigeben. Dienst stoppen und starten
++        # sind entfallen, siehe Kopfkommentar der Klasse.
++        total_actions = 3
+         reimage_node_number = len(cyber_env.environment.network.nodes)
+         block_traffic_node = len(cyber_env.environment.network.nodes)
+-        block_traffic_port = 6
+-        block_traffic_incoming = 2
+         allow_traffic_node = len(cyber_env.environment.network.nodes)
+-        allow_traffic_port = 6
+-        allow_traffic_incoming = 2
+-        stop_service_node = len(cyber_env.environment.network.nodes)
+-        stop_service_port = 3
+-        start_service_node = len(cyber_env.environment.network.nodes)
+-        start_service_port = 3
+-        action_space = [total_actions, reimage_node_number, block_traffic_node, block_traffic_port, block_traffic_incoming, allow_traffic_node, allow_traffic_port, allow_traffic_incoming, stop_service_node, stop_service_port, start_service_node, start_service_port]
++        # Nur eingehend, und der Port ergibt sich aus dem Knoten: Der
++        # Verteidiger kennt die Dienste seines eigenen Netzes.
++        action_space = [total_actions, reimage_node_number,
++                        block_traffic_node, allow_traffic_node]
+         logging.info(f"Action space defender = {action_space}")
+         return spaces.MultiDiscrete(action_space)
+ 
++    def _count_attacker_owned(self) -> int:
++        """Anzahl der Knoten die der Attacker NEU besitzt (ohne Entry-Node-Baseline)."""
++        priv = self.cyber_env._CyberBattleEnv__get_privilegelevel_array()
++        return max(0, int(np.count_nonzero(priv)) - self._baseline_owned)
++
+     def step(self, action) -> Tuple[Observation, float, bool, Dict[str, Any]]:
+         done = False
+         reward = 0
++
++        # Snapshot VOR der Defender-Aktion (Attacker hat schon in diesem Step gehandelt)
++        n_owned_before = self._count_attacker_owned()
++
++        # Aktionstyp vor evtl. Leerung merken (für Action-Tracking)
++        act_type = int(action[0]) if len(action) > 0 else -1
++
+         # Check for action validity
+-        if not self.is_defender_action_valid(action):
++        action_was_valid = self.is_defender_action_valid(action)
++        if not action_was_valid:
+             logging.info(f"Action chosen is outside action space. Defender will skip this turn. Action = {action}")
+             self.invalid_action_count += 1
++            self._ep_stats["def_invalid"] += 1
+             reward += self.invalid_action_penalty
+             # If the action is invalid, pass an empty list to the defender
+             action = []
+         else:
+             self.valid_action_count += 1
+-        
++            # Aktionstyp-Verteilung (nur gültige Aktionen)
++            _type_key = {0: "def_reimage", 1: "def_block", 2: "def_allow"}.get(act_type)
++            if _type_key:
++                self._ep_stats[_type_key] += 1
++
+         self.defender.executeAction(action)
+-        # Take the reward gained this step from the attacker's step and invert it so the defender
+-        # loses more reward if the attacker succeeds.
+-        if self.attacker_reward_store.episode_rewards:
+-            reward += -1*self.attacker_reward_store.episode_rewards[-1]
++
++        # Delta-basierter Reward: kausal zur Defender-Aktion
++        # recovered > 0 → Defender hat Knoten zurückgewonnen (z.B. Reimage)
++        # n_owned_after → dauerhafter Druck, kompromittierte Knoten zu minimieren
++        n_owned_after = self._count_attacker_owned()
++        recovered = n_owned_before - n_owned_after
++        if recovered > 0:
++            self._ep_stats["def_recovered"] += int(recovered)   # informativ (CSV)
++
++        # Defender-Reward = -(Angreifer-Reward dieses Steps).
++        # Der Angreifer hat in diesem Env-Step bereits gehandelt; seine
++        # rewards-Liste enthaelt den Schrittwert samt Haltebonus und
++        # Eviction-Strafe (siehe attack_wrapper).
++        atk_r = getattr(self.attacker_reward_store, "rewards", None)
++        reward += -(float(atk_r[-1]) if atk_r else 0.0)
++
++        # Abwehrbonus: Anteil des Werts abgeschirmter Knoten, je Schritt.
++        abwehr = self._abwehrbonus()
++        self._ep_stats["def_abwehr_reward"] += abwehr
++        reward += abwehr
+ 
+         if self.defender_constraints_broken():
+-            reward = self.cyber_env._CyberBattleEnv__LOSING_REWARD
+-            logging.warning("Defender Lost")
++            self._ep_stats["def_sla_break_steps"] += 1
++            # Frueher: reward = __LOSING_REWARD (-5000), also ERSETZUNG des
++            # Schrittwerts. Solange SLA-Brueche selten waren, ging das durch.
++            # Seit gesperrte Ports auf die Verfuegbarkeit zaehlen, sind sie der
++            # Normalfall, und eine einzige Episode kam auf -2,5 Millionen. Eine
++            # ersetzende Strafe macht jede betroffene Episode zudem mit den
++            # uebrigen unvergleichbar. Deshalb jetzt ergaenzend und in der
++            # Groessenordnung der anderen Terme.
++            reward += self._SLA_BREACH_PENALTY
++            if not self._constraint_broken_logged:
++                logging.warning("Defender Lost (SLA constraint broken)")
++                self._constraint_broken_logged = True
+             if self.reset_on_constraint_broken:
+                 done = True
+         if self.cyber_env._CyberBattleEnv__defender_goal_reached():
+@@ -135,12 +236,98 @@
+ 
+         if self.reset_request:
+             done = True
+-            reward = -1*self.__last_attacker_reward
+         elif self.timesteps > self.max_timesteps:
+             done = True
+ 
++        # Episodenende: Aktionsstatistik als Snapshot ablegen (ein Eintrag/Episode)
++        if done:
++            self.episode_stats_log.append(dict(self._ep_stats))
++
+         self.rewards.append(reward)
+-        return defender_observation, reward, done, {}
++        return defender_observation, reward, done, False, {}
++
++    def _vorgaenger(self, ziel: str):
++        """Knoten, die *ziel* laut Topologie erreichen duerfen.
++
++        Quelle ist die Adjacency, die der Topologie-Generator am Netzgraphen
++        hinterlegt. Aus der Firewall allein waere das nicht ableitbar: Der
++        Netzgraph traegt zur Laufzeit keine Kanten, und die Ports sind
++        mehrdeutig, weil sich mehrere Knoten denselben Zugangsport teilen.
++        Ohne hinterlegte Adjacency faellt die Methode auf die Firewall zurueck.
++        """
++        adj = self._adjazenz
++        if adj is not None:
++            return [q for q, ziele in adj.items() if ziel in ziele]
++
++        # Rueckfallweg: jeder Knoten, der den Zugangsport ausgehend nutzen darf.
++        env = self.cyber_env.environment
++        info = env.get_node(ziel)
++        ports = {d.name for d in info.services}
++        raus = []
++        for q in env.network.nodes:
++            if q == ziel:
++                continue
++            for regel in env.get_node(q).firewall.outgoing:
++                if regel.permission == model.RulePermission.ALLOW and regel.port in ports:
++                    raus.append(q)
++                    break
++        return raus
++
++    def _abwehrbonus(self) -> float:
++        """Kantenbilanz der abgeschirmten Knoten, positiv oder negativ.
++
++        Betrachtet wird jeder saubere Knoten Z mit Wert, dessen Zugangsport
++        eingehend ausdruecklich gesperrt ist. Fuer ihn wird der Anteil der
++        Bedrohung an allen eingehenden Kanten gebildet:
++
++            f = kompromittierte Vorgaenger von Z / alle Vorgaenger von Z
++
++            Beitrag = ABWEHR_RATE * Wert(Z) * (2f - 1)
++
++        f = 1  (jeder Nachbar ist in der Hand des Angreifers)  ->  + RATE * Wert
++        f = 0  (kein Nachbar ist kompromittiert)               ->  - RATE * Wert
++
++        Die frueher verwendete binaere Pruefung fragte nur, ob es ueberhaupt
++        einen kompromittierten Nachbarn gibt. Damit zaehlte in flat, wo jeder
++        Knoten neun eingehende Kanten hat, jede beliebige Sperre als Abwehr,
++        obwohl sie acht legitime Zugaenge mitkappte: In 101 Episoden war der
++        Bonus dort kein einziges Mal negativ. Die Normierung auf (2f - 1) haelt
++        den Betrag weiterhin durch ABWEHR_RATE * Wert begrenzt, sodass die
++        Abwaegung gegen HOLDING_RATE unveraendert gilt.
++        """
++        env = self.cyber_env.environment
++        summe = 0.0
++        anzahl = 0
++
++        for ziel in list(env.network.nodes):
++            info = env.get_node(ziel)
++            if info.agent_installed or info.value <= 0:
++                continue
++
++            gesperrt = any(
++                regel.permission == model.RulePermission.BLOCK
++                and any(regel.port == d.name for d in info.services)
++                for regel in info.firewall.incoming
++            )
++            if not gesperrt:
++                continue
++
++            vorgaenger = self._vorgaenger(ziel)
++            if not vorgaenger:
++                # Nicht erreichbar, also auch nicht zu verteidigen. Eine Sperre
++                # hier kappt nur Verfuegbarkeit.
++                summe -= float(info.value)
++                anzahl += 1
++                continue
++
++            befallen = sum(1 for q in vorgaenger
++                           if env.get_node(q).agent_installed)
++            f = befallen / len(vorgaenger)
++            summe += float(info.value) * (2.0 * f - 1.0)
++            anzahl += 1
++
++        self._ep_stats["def_abgeschirmt"] += anzahl
++        return self.ABWEHR_RATE * summe
+ 
+     def is_defender_action_valid(self, action) -> boolean:
+         """Determines if a given action is valid within the environment."""
+@@ -193,41 +380,47 @@
+             return service_from_action < len(node_info.services)
+         action_number = action[0]
+         if action_number == 0:
+-            # REIMAGE
+-            _, node_info = get_node_and_info(action[1])
+-            # If the node does not exist, or if the node is not currently running, this action is invalid.
+-            return node_exists_and_running(action[1]) and is_reimagable(node_info)
++            # REIMAGE – nur gültig wenn Node kompromittiert ist.
++            # Reimage auf sauberem Node setzt ihn kurz offline → SLA-Verletzung.
++            node_id, node_info = get_node_and_info(action[1])
++            return (node_exists_and_running(action[1])
++                    and is_reimagable(node_info)
++                    and node_info.agent_installed)
+ 
+         elif action_number == 1:
+-            # block traffic
++            # Verkehr sperren: eingehend, alle Dienste des Knotens.
++            # Gueltig, sobald der Knoten laeuft und ueberhaupt Dienste anbietet.
+             _, node_info = get_node_and_info(action[2])
+-            # If the node does not exist, or if the node is not currently running, this action is invalid.
+-            # The firewall rule needs to exist as well to block the traffic.
+-            return node_exists_and_running(action[2]) and firewall_rule_exists(node_info, action[3], bool(action[4]))
++            return node_exists_and_running(action[2]) and len(node_info.services) > 0
+ 
+         elif action_number == 2:
+-            # allow traffic
+-            _, node_info = get_node_and_info(action[5])
+-            # If the node does not exist, or if the node is not currently running, this action is invalid.
+-            return node_exists_and_running(action[5])
+-
+-        elif action_number == 3:
+-            # stop service
+-            # If the node does not exist, or if the node is not currently running, this action is invalid.
+-            # Also if the service to stop does not exist, this is invalid
++            # Verkehr freigeben, eingehend, alle Dienste des Knotens
++            _, node_info = get_node_and_info(action[3])
++            return node_exists_and_running(action[3]) and len(node_info.services) > 0
++
++        elif action_number >= 3:
++            # Dienst stoppen und starten gibt es nicht mehr.
++            return False
++
++        elif action_number == 99:
++            # (nicht erreichbar, nur damit der urspruengliche Zweig lesbar bleibt) – strukturell valid solange Node läuft und Service existiert.
++            # Ob es sinnvoll ist (kompromittierter Node) wird über Reward-Penalty gesteuert.
+             _, node_info = get_node_and_info(action[8])
+             return node_exists_and_running(action[8]) and service_exists(node_info, action[9])
+ 
+         elif action_number == 4:
+-            # start service
+-            # If the node does not exist, or if the node is not currently running, this action is invalid.
+-            # Also if the service to start does not exist, this is invalid
++            # start service – nur wenn Service tatsächlich gestoppt ist.
++            # Bereits laufenden Service "starten" = keine sinnvolle Aktion.
+             _, node_info = get_node_and_info(action[10])
+-            return node_exists_and_running(action[10]) and service_exists(node_info, action[11])
++            if not node_exists_and_running(action[10]):
++                return False
++            if not service_exists(node_info, action[11]):
++                return False
++            return not node_info.services[action[11]].running
+         else:
+             return False
+ 
+-    def reset(self) -> Observation:
++    def reset(self, **kwargs):
+         logging.debug('Reset Defender')
+         if not self.reset_request:
+             self.event_source.notify_reset(last_reward=0)
+@@ -240,8 +433,13 @@
+         self.timesteps = 0
+         self.valid_action_count = 0
+         self.invalid_action_count = 0
++        self._constraint_broken_logged = False
++        self._ep_stats = self._blank_stats()   # Action-Tracking für neue Episode
++        # Initiale owned-Knoten (Entry-Node) als Baseline für Delta-Reward
++        priv = self.cyber_env._CyberBattleEnv__get_privilegelevel_array()
++        self._baseline_owned = int(np.count_nonzero(priv))
+ 
+-        return self.observe()
++        return self.observe(), {}
+ 
+     def on_reset(self, last_reward):
+         logging.debug('on_reset Defender')
+diff -ruN a/marlon/baseline_models/multiagent/baseline_marlon_agent.py b/marlon/baseline_models/multiagent/baseline_marlon_agent.py
+--- a/marlon/baseline_models/multiagent/baseline_marlon_agent.py	2026-08-31 11:34:08.315561952 +0200
++++ b/marlon/baseline_models/multiagent/baseline_marlon_agent.py	2026-08-31 11:34:08.333304268 +0200
+@@ -6,7 +6,7 @@
+ from stable_baselines3 import A2C
+ import torch as th
+ 
+-import gym
++import gymnasium as gym
+ 
+ from stable_baselines3.common.utils import safe_mean, obs_as_tensor
+ from stable_baselines3.common.buffers import RolloutBuffer
+@@ -31,6 +31,23 @@
+         model = self.alg_type(self.policy, Monitor(wrapper), verbose=1)
+         return BaselineMarlonAgent(model, wrapper, logger)
+ 
++
++class MaskableAgentBuilder(AgentBuilder):
++    '''Baut einen MaskablePPO-Agenten (sb3-contrib) mit Invalid-Action-Masking.
++
++    Setzt voraus, dass der Wrapper einen flachen Discrete-Aktionsraum und eine
++    action_masks()-Methode bereitstellt (AttackerEnvWrapper mit
++    use_action_masking=True).'''
++
++    def __init__(self, policy: str = "MultiInputPolicy"):
++        self.policy = policy
++
++    def build(self, wrapper: GymEnv, logger: logging.Logger) -> MarlonAgent:
++        from sb3_contrib import MaskablePPO
++        model = MaskablePPO(self.policy, Monitor(wrapper), verbose=1)
++        return BaselineMarlonAgent(model, wrapper, logger)
++
++
+ class LoadFileBaselineAgentBuilder(AgentBuilder):
+     def __init__(self, alg_type: Type, file_path: str):
+         assert issubclass(alg_type, OnPolicyAlgorithm), "Algorithm type must inherit OnPolicyAlgorithm."
+@@ -43,12 +60,34 @@
+         model.set_env(Monitor(wrapper))
+         return BaselineMarlonAgent(model, wrapper, logger)
+ 
++
++class FrozenAgentBuilder(AgentBuilder):
++    """Loads a pre-trained model but keeps its weights frozen during training.
++
++    The agent still acts (provides a stable threat/defense), but never receives
++    gradient updates. Use this to hold the attacker constant while training the
++    defender, giving a controlled independent variable across topology experiments.
++    """
++
++    def __init__(self, alg_type: Type, file_path: str):
++        assert issubclass(alg_type, OnPolicyAlgorithm), "Algorithm type must inherit OnPolicyAlgorithm."
++        self.alg_type = alg_type
++        self.file_path = file_path
++
++    def build(self, wrapper: GymEnv, logger: logging.Logger) -> MarlonAgent:
++        model = self.alg_type.load(self.file_path)
++        model.set_env(Monitor(wrapper))
++        return FrozenBaselineMarlonAgent(model, wrapper, logger)
++
+ class BaselineMarlonAgent(MarlonAgent):
+     def __init__(self, baseline_model: OnPolicyAlgorithm, wrapper, logger: logging.Logger):
+         self.baseline_model: OnPolicyAlgorithm = baseline_model
+         self.callback: BaseCallback = None
+         self._wrapper = wrapper
+         self.logger = logger
++        self._episode_log = []  # [{timestep, episode_reward, episode_length}, ...]
++        self._current_ep_reward = 0.0
++        self._current_ep_length = 0
+     
+     @property
+     def wrapper(self):
+@@ -82,6 +121,16 @@
+     def post_predict_callback(self, observation, reward, done, info):
+         pass
+ 
++    def _latest_wrapper_stats(self) -> dict:
++        """Neuester Per-Episode-Action-Snapshot des Wrappers (leer, falls keiner)."""
++        log = getattr(self._wrapper, "episode_stats_log", None)
++        return dict(log[-1]) if log else {}
++
++    def _forward_policy(self, obs_tensor):
++        """Policy-Vorwärtslauf in perform_step. Von maskierten Agenten überschrieben,
++        um die Action-Maske durchzureichen."""
++        return self.baseline_model.policy.forward(obs_tensor)
++
+     def perform_step(self, n_steps: int) -> Tuple[bool, Any, Any]:
+         if self.baseline_model.use_sde and self.baseline_model.sde_sample_freq > 0 and \
+             n_steps % self.baseline_model.sde_sample_freq == 0:
+@@ -92,7 +141,7 @@
+         with th.no_grad():
+             # Convert to pytorch tensor or to TensorDict
+             obs_tensor = obs_as_tensor(self.baseline_model._last_obs, self.baseline_model.device)
+-            actions, values, log_probs = self.baseline_model.policy.forward(obs_tensor)
++            actions, values, log_probs = self._forward_policy(obs_tensor)
+ 
+         actions = actions.cpu().numpy()
+ 
+@@ -117,6 +166,28 @@
+ 
+         self.baseline_model._update_info_buffer(infos)
+ 
++        # Immer mitzählen, unabhängig davon ob die Episode diesen Step beendet -
++        # so bleibt bei on_training_end() Fortschritt vorhanden, selbst wenn
++        # nie ein done=True auftrat (z.B. total_timesteps <= max_timesteps).
++        self._current_ep_reward += float(rewards[0])
++        self._current_ep_length += 1
++
++        for info in (infos if isinstance(infos, list) else [infos]):
++            ep = info.get("episode")
++            if ep is not None:
++                entry = {
++                    "timestep": self.baseline_model.num_timesteps,
++                    "episode_reward": round(float(ep["r"]), 4),
++                    "episode_length": int(ep["l"]),
++                }
++                # Action-Tracking: den zu DIESER Episode gehörenden Snapshot mergen.
++                # Der Wrapper hat ihn im selben env.step() an episode_stats_log[-1]
++                # angehängt, bevor DummyVecEnv auto-resettet → [-1] ist korrekt.
++                entry.update(self._latest_wrapper_stats())
++                self._episode_log.append(entry)
++                self._current_ep_reward = 0.0
++                self._current_ep_length = 0
++
+         if isinstance(self.baseline_model.action_space, gym.spaces.Discrete):
+             # Reshape in case of discrete action
+             actions = actions.reshape(-1, 1)
+@@ -136,7 +207,7 @@
+         return True, new_obs, dones
+ 
+     def log_training(self, iteration: int):
+-        training_duration = time.time() - self.baseline_model.start_time
++        training_duration = (time.time_ns() - self.baseline_model.start_time) / 1e9
+         fps = int(self.baseline_model.num_timesteps / training_duration)
+ 
+         self.baseline_model.logger.record(
+@@ -178,10 +249,28 @@
+         self.baseline_model.train()
+ 
+     def learn(self, total_timesteps: int, n_eval_episodes: int):
+-        self.baseline_model.learn(
+-            total_timesteps=total_timesteps,
+-            n_eval_episodes=n_eval_episodes
+-        )
++        self.baseline_model.learn(total_timesteps=total_timesteps)
++
++        # Dieser Pfad (kein Defender) nutzt SB3s eigene native learn()-Schleife,
++        # nicht unseren perform_step()/on_training_end() - _episode_log bliebe
++        # sonst leer. Nachträglich aus SB3s ep_info_buffer befüllen (deque,
++        # standardmäßig die letzten 100 Episoden).
++        # Action-Tracking: ep_info_buffer ist eine deque der letzten ~100 Episoden,
++        # episode_stats_log enthält ALLE Episoden. Vom Ende her ausrichten.
++        buf = list(self.baseline_model.ep_info_buffer)
++        stats_log = getattr(self._wrapper, "episode_stats_log", [])
++        stats_tail = stats_log[-len(buf):] if stats_log else []
++        cumulative_steps = 0
++        for idx, ep_info in enumerate(buf):
++            cumulative_steps += int(ep_info["l"])
++            entry = {
++                "timestep": cumulative_steps,
++                "episode_reward": round(float(ep_info["r"]), 4),
++                "episode_length": int(ep_info["l"]),
++            }
++            if idx < len(stats_tail):
++                entry.update(stats_tail[idx])
++            self._episode_log.append(entry)
+ 
+     def setup_learn(self,
+         total_timesteps: int,
+@@ -194,11 +283,7 @@
+ 
+         total_timesteps, callback = self.baseline_model._setup_learn(
+             total_timesteps=total_timesteps,
+-            eval_env=eval_env,
+             callback=None,
+-            eval_freq=eval_freq,
+-            n_eval_episodes=n_eval_episodes,
+-            log_path=eval_log_path,
+             reset_num_timesteps=reset_num_timesteps,
+             tb_log_name=tb_log_name
+         )
+@@ -238,9 +323,83 @@
+ 
+         self.callback.on_rollout_end()
+ 
++    def flush_pending_episode(self):
++        """Loggt den bisherigen Fortschritt einer noch laufenden Episode.
++
++        info["episode"] von Monitor kommt nur bei done=True. Bei No-Reset-Envs
++        (max_timesteps > total_timesteps, z.B. Kurztests) endet nie eine Episode
++        von selbst - ohne diesen Flush bliebe _episode_log leer.
++        """
++        if self._current_ep_length > 0:
++            self._episode_log.append({
++                "timestep": self.baseline_model.num_timesteps,
++                "episode_reward": round(self._current_ep_reward, 4),
++                "episode_length": self._current_ep_length,
++            })
++            self._current_ep_reward = 0.0
++            self._current_ep_length = 0
++
+     def on_training_end(self):
++        self.flush_pending_episode()
+         self.callback.on_training_end()
+ 
+     def save(self, filepath: str):
+         self.baseline_model.save(filepath)
+         self.logger.info('Saved baseline model at: %s', filepath)
++
++
++class FrozenBaselineMarlonAgent(BaselineMarlonAgent):
++    """Acts with the loaded policy but never applies gradient updates.
++
++    on_rollout_end skips advantage computation (no training → no need).
++    train() is a no-op. Episode logging still works normally.
++    """
++
++    def on_rollout_end(self, new_obs: Any, dones: Any):
++        # Rollout buffer is populated but advantages are never needed.
++        self.callback.on_rollout_end()
++
++    def train(self):
++        pass  # Policy is frozen – weights stay constant
++
++
++class FrozenMaskableMarlonAgent(FrozenBaselineMarlonAgent):
++    """Eingefrorener MaskablePPO-Angreifer: reicht die Action-Maske beim Agieren
++    durch (perform_step -> _forward_policy sowie predict), damit er auch im
++    eingefrorenen Zustand in der Defender-Matrix nur gültige Aktionen wählt."""
++
++    def _forward_policy(self, obs_tensor):
++        mask = self._wrapper.action_masks()
++        mask_t = th.as_tensor(np.asarray(mask), device=self.baseline_model.device).unsqueeze(0)
++        return self.baseline_model.policy.forward(obs_tensor, action_masks=mask_t)
++
++    def predict(self, observation):
++        mask = self._wrapper.action_masks()
++        action, _ = self.baseline_model.predict(observation=observation, action_masks=np.asarray(mask))
++        return action
++
++
++class MaskableFrozenAgentBuilder(AgentBuilder):
++    """Lädt ein MaskablePPO-Modell und friert es ein (für die Defender-Matrix)."""
++
++    def __init__(self, file_path: str):
++        self.file_path = file_path
++
++    def build(self, wrapper: GymEnv, logger: logging.Logger) -> MarlonAgent:
++        from sb3_contrib import MaskablePPO
++        model = MaskablePPO.load(self.file_path)
++        model.set_env(Monitor(wrapper))
++        return FrozenMaskableMarlonAgent(model, wrapper, logger)
++
++
++class MaskableLoadFileAgentBuilder(AgentBuilder):
++    """Lädt ein MaskablePPO-Modell und trainiert es weiter (Super-Curriculum)."""
++
++    def __init__(self, file_path: str):
++        self.file_path = file_path
++
++    def build(self, wrapper: GymEnv, logger: logging.Logger) -> MarlonAgent:
++        from sb3_contrib import MaskablePPO
++        model = MaskablePPO.load(self.file_path)
++        model.set_env(Monitor(wrapper))
++        return BaselineMarlonAgent(model, wrapper, logger)
+diff -ruN a/marlon/baseline_models/multiagent/marl_algorithm.py b/marlon/baseline_models/multiagent/marl_algorithm.py
+--- a/marlon/baseline_models/multiagent/marl_algorithm.py	2026-08-31 11:34:08.315852908 +0200
++++ b/marlon/baseline_models/multiagent/marl_algorithm.py	2026-08-31 11:34:08.333430467 +0200
+@@ -5,6 +5,7 @@
+ https://github.com/DLR-RM/stable-baselines3/blob/master/stable_baselines3/common/on_policy_algorithm.py
+ '''
+ 
++import logging
+ from typing import Dict, List, Optional, Tuple
+ 
+ import numpy as np
+@@ -63,6 +64,7 @@
+     tb_log_name: str = "OnPolicyAlgorithm",
+     eval_log_path: Optional[str] = None,
+     reset_num_timesteps: bool = True,
++    convergence_monitor=None,
+ ):
+     '''
+     Train an attacker and defender agent in a multi-agent scenario.
+@@ -90,6 +92,7 @@
+     '''
+ 
+     iteration = 0
++    fed_episodes = 0   # wie viele Defender-Episoden dem Konvergenz-Monitor schon zugefuehrt wurden
+ 
+     total_timesteps1 = attacker_agent.setup_learn(
+         total_timesteps, eval_env, eval_freq, n_eval_episodes,
+@@ -125,9 +128,31 @@
+         attacker_agent.train()
+         defender_agent.train()
+ 
++        # Auto-Stop: neue Defender-Episoden dem Konvergenz-Monitor zufuehren.
++        if convergence_monitor is not None:
++            ep_log = defender_agent._episode_log
++            while fed_episodes < len(ep_log):
++                convergence_monitor.update(ep_log[fed_episodes]["episode_reward"])
++                fed_episodes += 1
++            if convergence_monitor.converged:
++                logging.info("Konvergenz erkannt bei Defender-Episode %s - Training vorzeitig gestoppt.",
++                             convergence_monitor.converged_episode)
++                break
++
+     attacker_agent.on_training_end()
+     defender_agent.on_training_end()
+ 
++def _owned_set(cyber_env) -> set:
++    """Aktuell vom Attacker besessene Knoten."""
++    return {
++        nid for nid, info in cyber_env._actuator.discovered_nodes()
++        if info.agent_installed
++    }
++
++def _discovered_set(cyber_env) -> set:
++    """Alle dem Attacker bekannten Knoten (owned + discovered)."""
++    return {nid for nid, _ in cyber_env._actuator.discovered_nodes()}
++
+ def run_episode(
+     attacker_agent: EvaluationAgent,
+     defender_agent: Optional[EvaluationAgent],
+@@ -138,35 +163,20 @@
+     Runs an episode with two agents until max_steps is reached or the
+     environment's done flag is set.
+ 
+-    Parameters
+-    ----------
+-    attacker_agent : EvaluationAgent
+-        The attacker agent used to select offensive actions.
+-    defender_agent : EvaluationAgent
+-        The defender agent used to select defensive actions.
+-    max_steps : int
+-        The max time steps before the episode is terminated.
+-    is_simulation : bool
+-        Whether it should compile a simulation for this episodes' relevant steps.
+-
+-    Returns
+-    -------
+-    attacker_rewards : List[float]
+-        The list of rewards at each time step for the attacker agent.
+-    defender_rewards : List[float]
+-        The list of rewards at each time step for the defender agent.
+-    simulation: Dict[str, List[any]]
+-        None if is_simulation = False. A dictionary with 'attacker' and 'defender' simulation lists.
++    Returns (attacker_rewards, defender_rewards, simulation, action_log).
++    action_log is a list of dicts describing each interesting step.
+     '''
+-    obs1 = attacker_agent.env.reset()
++    reset1 = attacker_agent.env.reset()
++    obs1 = reset1[0] if isinstance(reset1, tuple) else reset1
+ 
+     if defender_agent:
+         defender_agent.wrapper.on_reset(0)
+-        obs2 = defender_agent.env.reset()
++        reset2 = defender_agent.env.reset()
++        obs2 = reset2[0] if isinstance(reset2, tuple) else reset2
+ 
+     attacker_rewards = []
+     defender_rewards = []
+-    
++
+     dones1 = False
+     dones2 = False
+ 
+@@ -175,53 +185,149 @@
+ 
+     n_steps = 0
+ 
++    MAX_SIM_FRAMES = 80   # JSON-Größe begrenzen: mehr Frames = Browser hängt
++
+     simulation = None
++    attacker_log = []
++    defender_log = []
+     if is_simulation:
+         simulation = [generate_graph_json(cyber_env, n_steps+1, sum(attacker_rewards), sum(defender_rewards))]
+ 
++    # Lookup-Liste: Index → Node-Name (fest für die gesamte Episode)
++    node_list = list(cyber_env.environment.network.nodes)
++    def _node_name(idx: int) -> str:
++        try:
++            return node_list[int(idx)]
++        except (IndexError, TypeError):
++            return f"node[{idx}]"
++
++    _DEFENDER_ACTIONS = {0: "REIMAGE", 1: "BLOCK", 2: "ALLOW", 3: "STOP_SVC", 4: "START_SVC"}
++
+     while n_steps < max_steps:
++        # ── Snapshot vor dem Attacker-Step ───────────────────────────
++        owned_before      = _owned_set(cyber_env)
++        discovered_before = _discovered_set(cyber_env)
++        creds_before      = len(getattr(cyber_env, '_CyberBattleEnv__credential_cache', []))
++
+         action1 = attacker_agent.predict(observation=obs1)
+-        obs1, rewards1, dones1, info1 = attacker_agent.env.step(action1)
++        step1 = attacker_agent.env.step(action1)
++        if len(step1) == 5:
++            obs1, rewards1, term1, trunc1, info1 = step1
++            dones1 = term1 or trunc1
++        else:
++            obs1, rewards1, dones1, info1 = step1
+         if isinstance(rewards1, np.ndarray):
+             rewards1 = rewards1[0]
+ 
+         attacker_agent.post_predict_callback(
+-            observation=obs1,
+-            reward=rewards1,
+-            done=dones1,
+-            info=info1,
++            observation=obs1, reward=rewards1, done=dones1, info=info1,
+         )
+-
+         attacker_rewards.append(rewards1)
+ 
++        # ── Attacker-Log-Eintrag ──────────────────────────────────────
++        if is_simulation:
++            owned_after      = _owned_set(cyber_env)
++            discovered_after = _discovered_set(cyber_env)
++            creds_after      = len(getattr(cyber_env, '_CyberBattleEnv__credential_cache', []))
++
++            new_owned      = sorted(owned_after - owned_before)
++            new_discovered = sorted(discovered_after - discovered_before - owned_after)
++            new_creds      = creds_after - creds_before
++
++            if new_owned:
++                kind, detail = "LATERAL_MOVE", f"owned: {', '.join(new_owned)}"
++            elif new_creds > 0:
++                kind, detail = "CREDS_FOUND", f"+{new_creds} credential(s)"
++            elif new_discovered:
++                kind, detail = "DISCOVERY", f"discovered: {', '.join(new_discovered)}"
++            elif float(rewards1) > 0:
++                kind, detail = "REWARD", f"reward: {rewards1:.1f}"
++            else:
++                kind, detail = "FAILED", "no effect"
++
++            if kind != "FAILED":   # FAILEDs weglassen – reduziert JSON-Größe bei trainierten Modellen
++                attacker_log.append({
++                    "step":   n_steps + 1,
++                    "kind":   kind,
++                    "detail": detail,
++                    "reward": round(float(rewards1), 2),
++                    "owned":  sorted(owned_after),
++                })
++
+         if not defender_agent:
+-            # If there is a jump in the reward for this step, record it for UI display.
+-            if is_simulation and (rewards1 > 0 or n_steps == max_steps-1):
++            if is_simulation and (rewards1 > 0 or n_steps == max_steps-1) and len(simulation) < MAX_SIM_FRAMES:
+                 simulation.append(generate_graph_json(cyber_env, n_steps+1, sum(attacker_rewards), sum(defender_rewards)))
+         else:
++            # ── Snapshot vor dem Defender-Step ───────────────────────
++            owned_before_def = _owned_set(cyber_env)
++
+             action2 = defender_agent.predict(observation=obs2)
+-            obs2, rewards2, dones2, info2 = defender_agent.env.step(action2)
++            step2 = defender_agent.env.step(action2)
++            if len(step2) == 5:
++                obs2, rewards2, term2, trunc2, info2 = step2
++                dones2 = term2 or trunc2
++            else:
++                obs2, rewards2, dones2, info2 = step2
+             if isinstance(rewards2, np.ndarray):
+                 rewards2 = rewards2[0]
+ 
+             defender_agent.post_predict_callback(
+-                observation=obs2,
+-                reward=rewards2,
+-                done=dones2,
+-                info=info2,
++                observation=obs2, reward=rewards2, done=dones2, info=info2,
+             )
+-
+             defender_rewards.append(rewards2)
+ 
+-            # If there is a jump in the reward for this step, record it for UI display.
+-            if is_simulation and (rewards1 > 0 or rewards2 > 0 or n_steps == max_steps-1):
++            # ── Defender-Log-Eintrag ──────────────────────────────────
++            if is_simulation:
++                owned_after_def   = _owned_set(cyber_env)
++                reimaged          = sorted(owned_before_def - owned_after_def)
++
++                # SB3 predict() returns shape (1, N) with batch dim — flatten first
++                a2 = np.asarray(action2).flatten()
++                try:
++                    act_type = int(a2[0])
++                except (TypeError, IndexError, ValueError):
++                    act_type = -1
++
++                if reimaged:
++                    kind_def   = "REIMAGE"
++                    detail_def = f"reimaged: {', '.join(reimaged)}"
++                elif act_type == 0:
++                    kind_def   = "REIMAGE"
++                    detail_def = "reimage attempt (nothing to clear)"
++                elif act_type == 1:
++                    kind_def   = "BLOCK"
++                    detail_def = f"blocked port on {_node_name(a2[2])}"
++                elif act_type == 2:
++                    kind_def   = "ALLOW"
++                    detail_def = f"allowed port on {_node_name(a2[5])}"
++                elif act_type == 3:
++                    kind_def   = "STOP_SVC"
++                    detail_def = f"stopped service on {_node_name(a2[8])}"
++                elif act_type == 4:
++                    kind_def   = "START_SVC"
++                    detail_def = f"started service on {_node_name(a2[10])}"
++                else:
++                    kind_def   = "FAILED"
++                    detail_def = "invalid action"
++
++                attacker_has_nodes = len(owned_before_def) > 0
++                if attacker_has_nodes or kind_def == "REIMAGE":
++                    defender_log.append({
++                        "step":   n_steps + 1,
++                        "kind":   kind_def,
++                        "detail": detail_def,
++                        "reward": round(float(rewards2), 2),
++                        "owned":  sorted(owned_after_def),
++                    })
++
++            if is_simulation and (rewards1 > 0 or rewards2 > 0 or n_steps == max_steps-1) and len(simulation) < MAX_SIM_FRAMES:
+                 simulation.append(generate_graph_json(cyber_env, n_steps+1, sum(attacker_rewards), sum(defender_rewards)))
+ 
+         if dones1 or dones2:
+-            if is_simulation:
++            if is_simulation and len(simulation) < MAX_SIM_FRAMES:
+                 simulation.append(generate_graph_json(cyber_env, n_steps+1, sum(attacker_rewards), sum(defender_rewards)))
+             break
+ 
+         n_steps += 1
+ 
+-    return attacker_rewards, defender_rewards, simulation
++    return attacker_rewards, defender_rewards, simulation, attacker_log, defender_log
+diff -ruN a/marlon/baseline_models/multiagent/multiagent_universe.py b/marlon/baseline_models/multiagent/multiagent_universe.py
+--- a/marlon/baseline_models/multiagent/multiagent_universe.py	2026-08-31 11:34:08.316086873 +0200
++++ b/marlon/baseline_models/multiagent/multiagent_universe.py	2026-08-31 11:34:08.333561902 +0200
+@@ -4,7 +4,7 @@
+ from typing import List, Optional
+ 
+ import numpy as np
+-import gym
++import gymnasium as gym
+ 
+ from stable_baselines3.common.type_aliases import GymEnv
+ 
+@@ -57,7 +57,8 @@
+         attacker_loss_reward: float = -5000.0,
+         defender_loss_reward: float = -5000.0,
+         defender_maintain_sla: float = 0.60,
+-        defender_reset_on_constraint_broken: bool = True):
++        defender_reset_on_constraint_broken: bool = True,
++        attacker_use_masking: bool = False):
+         '''
+         Static factory method to create a MultiAgentUniverse with the given options.
+ 
+@@ -113,7 +114,8 @@
+             max_timesteps=max_timesteps,
+             invalid_action_reward_modifier=attacker_invalid_action_reward_modifier,
+             invalid_action_reward_multiplier=attacker_invalid_action_reward_multiplier,
+-            loss_reward=attacker_loss_reward
++            loss_reward=attacker_loss_reward,
++            use_action_masking=attacker_use_masking
+         )
+         attacker_agent = attacker_builder.build(attacker_wrapper, logger)
+ 
+@@ -148,7 +150,7 @@
+         self.max_timesteps = max_timesteps
+         self.logger = logger
+ 
+-    def learn(self, total_timesteps: int, n_eval_episodes: int):
++    def learn(self, total_timesteps: int, n_eval_episodes: int, convergence_monitor=None):
+         '''
+         Train all agents in the universe for the specified amount of steps or episodes,
+         which ever comes first.
+@@ -167,7 +169,8 @@
+                 attacker_agent=self.attacker_agent,
+                 defender_agent=self.defender_agent,
+                 total_timesteps=total_timesteps,
+-                n_eval_episodes=n_eval_episodes
++                n_eval_episodes=n_eval_episodes,
++                convergence_monitor=convergence_monitor
+             )
+         else:
+             self.attacker_agent.learn(
+diff -ruN a/marlon/baseline_models/multiagent/random_marlon_agent.py b/marlon/baseline_models/multiagent/random_marlon_agent.py
+--- a/marlon/baseline_models/multiagent/random_marlon_agent.py	2026-08-31 11:34:08.316315376 +0200
++++ b/marlon/baseline_models/multiagent/random_marlon_agent.py	2026-08-31 11:34:08.333656523 +0200
+@@ -75,7 +75,8 @@
+     def perform_step(self, n_steps: int) -> Tuple[bool, Any, Any]:
+         # Choose a random action and perform the step.
+         action = self.env.action_space.sample()
+-        _observation, _reward, done, _info = self.env.step(action)
++        _observation, _reward, terminated, truncated, _info = self.env.step(action)
++        done = terminated or truncated
+ 
+         # First value is whether to continue, this is normally determined by a callback
+         # which we don't have, so we'll rely on the done flag.
+diff -ruN a/marlon/baseline_models/multiagent/simulation.py b/marlon/baseline_models/multiagent/simulation.py
+--- a/marlon/baseline_models/multiagent/simulation.py	2026-08-31 11:34:08.316393539 +0200
++++ b/marlon/baseline_models/multiagent/simulation.py	2026-08-31 11:34:08.333686503 +0200
+@@ -16,11 +16,16 @@
+ 
+     return fig, fig2, iteration, attacker_score, defender_score
+ 
++_MAX_REWARD_POINTS = 300   # Reward-Trace auf max N Punkte begrenzen
++
+ def getCompleteGraph(cyberbattle_env: CyberBattleEnv) -> FigureWidget:
+     fig = make_subplots(rows=1, cols=2)
+     fig2 = make_subplots(rows=1, cols=1)
+-    fig.add_trace(go.Scatter(y=np.array(cyberbattle_env._CyberBattleEnv__episode_rewards).cumsum(),
+-        name='cumulative reward'), row=1, col=1)
++    rewards = np.array(cyberbattle_env._CyberBattleEnv__episode_rewards).cumsum()
++    if len(rewards) > _MAX_REWARD_POINTS:
++        idx = np.linspace(0, len(rewards) - 1, _MAX_REWARD_POINTS, dtype=int)
++        rewards = rewards[idx]
++    fig.add_trace(go.Scatter(y=rewards, name='cumulative reward'), row=1, col=1)
+     traces, traces2, layout, layout2 = complete_network_as_plotly_traces(cyberbattle_env, xref="x2", yref="y2")
+     for trace in traces:
+         fig.add_trace(trace, row=1, col=2)
+@@ -39,7 +44,13 @@
+ 
+     known_nodes_ids = [node_id for node_id, _, in cyberbattle_env._actuator.discovered_nodes()]
+     all_nodes = [node_id for node_id in all_nodes.nodes]
+-    graph_nodes = nx.shell_layout(graph, [[all_nodes[0]], all_nodes[1:]])
++
++    # Topologie-bewusste Positionen verwenden, falls vom Environment gesetzt.
++    # Fallback: shell_layout (Kompatibilität mit allen anderen CBS-Envs).
++    if 'topology_pos' in graph.graph:
++        graph_nodes = graph.graph['topology_pos']
++    else:
++        graph_nodes = nx.shell_layout(graph, [[all_nodes[0]], all_nodes[1:]])
+ 
+     discovered_nodes = []
+     undiscovered_nodes = []
+diff -ruN a/marlon/convergence.py b/marlon/convergence.py
+--- a/marlon/convergence.py	1970-01-01 01:00:00.000000000 +0100
++++ b/marlon/convergence.py	2026-08-31 11:34:08.337610921 +0200
+@@ -0,0 +1,169 @@
++"""
++Konvergenz-Erkennung für RL-Trainingsläufe (topologie-unabhängig).
++
++Definition (angelehnt an die übliche RL-Praxis: gleitendes Fenster über den
++Episoden-Reward, Konvergenz = geglätteter Mittelwert stagniert UND die
++kurzfristige Streuung fällt unter eine Toleranz; vgl. Reward-Smoothing /
++late-stage reward drop in der RL-Literatur):
++
++    Konvergenz bei der ersten Episode t, ab der über ein Fenster von W
++    Episoden gilt:
++      (1) STREUUNG:  std(reward_{t-W+1..t}) / span  <=  cv_threshold
++      (2) TREND:     |mean_t - mean_{t-W}| / span   <=  slope_threshold
++    und beide Bedingungen für P aufeinanderfolgende Episoden ("Patience")
++    gehalten werden, damit frühe Schein-Plateaus nicht auslösen.
++
++`span` ist die Reward-Spanne (max-min) des bisherigen Laufs. Die Normierung
++auf die Spanne statt auf den Mittelwert (klassischer CV = std/mean) ist
++bewusst gewählt: Der Defender-Reward pendelt um 0, ein CV würde dort durch
++Division durch ~0 explodieren. std/span ist über die Nulllinie stabil und
++überträgt sich fair zwischen Topologien mit sehr unterschiedlichem
++Reward-Niveau.
++
++Annahme: stationäres Ziel. Gilt für die Defender-Matrix (Angreifer
++eingefroren). NICHT für Self-Play (bewegtes Ziel) — dort darf der Auto-Stop
++nicht verwendet werden.
++"""
++from __future__ import annotations
++
++from dataclasses import dataclass
++from typing import List, Optional, Sequence
++
++import numpy as np
++
++
++# ── Standard-Parameter (empirisch an Lauf 20260722 kalibriert) ────────────────
++DEFAULT_WINDOW = 15          # Fenstergröße W (Prof-Vorgabe)
++DEFAULT_CV_THRESHOLD = 0.05  # std/span-Schwelle für "streuungsarm"
++DEFAULT_SLOPE_THRESHOLD = 0.05  # |Δmean|/span-Schwelle für "kein Trend"
++DEFAULT_PATIENCE = 10        # P: so viele Episoden muss das Kriterium halten
++DEFAULT_MIN_SPAN = 1.0       # numerischer Schutz gegen Division durch 0
++
++
++@dataclass
++class ConvergenceResult:
++    converged: bool
++    episode: Optional[int]        # 1-basierte Episode, ab der Konvergenz gilt (Ende der Patience)
++    detected_at: Optional[int]    # Episode, an der das Kriterium erstmals dauerhaft griff (Start der Patience)
++    window: int
++    cv_threshold: float
++    slope_threshold: float
++    patience: int
++
++
++def _span(rewards: np.ndarray) -> float:
++    if rewards.size == 0:
++        return DEFAULT_MIN_SPAN
++    return max(float(rewards.max() - rewards.min()), DEFAULT_MIN_SPAN)
++
++
++def convergence_signal(
++    rewards: Sequence[float],
++    window: int = DEFAULT_WINDOW,
++    cv_threshold: float = DEFAULT_CV_THRESHOLD,
++    slope_threshold: float = DEFAULT_SLOPE_THRESHOLD,
++) -> np.ndarray:
++    """Boolescher Vektor: erfüllt Episode t (0-basiert) Streuungs- UND Trendbedingung?
++
++    Für t < 2*window-1 ist das Ergebnis False (nicht genug Historie für den
++    Trendvergleich zweier aufeinanderfolgender Fenster).
++    """
++    r = np.asarray(rewards, dtype=float)
++    n = r.size
++    ok = np.zeros(n, dtype=bool)
++    if n < 2 * window:
++        return ok
++    span = _span(r)
++    for t in range(2 * window - 1, n):
++        cur = r[t - window + 1: t + 1]
++        prev = r[t - 2 * window + 1: t - window + 1]
++        std_ok = cur.std() / span <= cv_threshold
++        slope_ok = abs(cur.mean() - prev.mean()) / span <= slope_threshold
++        ok[t] = std_ok and slope_ok
++    return ok
++
++
++def detect_convergence(
++    rewards: Sequence[float],
++    window: int = DEFAULT_WINDOW,
++    cv_threshold: float = DEFAULT_CV_THRESHOLD,
++    slope_threshold: float = DEFAULT_SLOPE_THRESHOLD,
++    patience: int = DEFAULT_PATIENCE,
++) -> ConvergenceResult:
++    """Ermittelt die Konvergenz-Episode für eine komplette Reward-Sequenz.
++
++    Konvergenz wird erklärt, sobald das Fensterkriterium `patience` Episoden
++    ununterbrochen erfüllt ist. Zurückgegeben wird die Episode am ENDE dieser
++    Patience-Strecke (1-basiert) — ab da gilt der Lauf als konvergiert.
++    """
++    ok = convergence_signal(rewards, window, cv_threshold, slope_threshold)
++    run = 0
++    for t in range(ok.size):
++        if ok[t]:
++            run += 1
++            if run >= patience:
++                return ConvergenceResult(
++                    converged=True,
++                    episode=t + 1,
++                    detected_at=t - patience + 2,
++                    window=window, cv_threshold=cv_threshold,
++                    slope_threshold=slope_threshold, patience=patience,
++                )
++        else:
++            run = 0
++    return ConvergenceResult(
++        converged=False, episode=None, detected_at=None,
++        window=window, cv_threshold=cv_threshold,
++        slope_threshold=slope_threshold, patience=patience,
++    )
++
++
++class ConvergenceMonitor:
++    """Inkrementeller Online-Detektor für die Trainingsschleife.
++
++    Nach jeder abgeschlossenen Episode `update(reward)` aufrufen. `converged`
++    wird True, sobald das Fensterkriterium `patience` Episoden in Folge hält.
++    Die Reward-Spanne wächst dabei mit dem beobachteten Verlauf mit.
++    """
++
++    def __init__(
++        self,
++        window: int = DEFAULT_WINDOW,
++        cv_threshold: float = DEFAULT_CV_THRESHOLD,
++        slope_threshold: float = DEFAULT_SLOPE_THRESHOLD,
++        patience: int = DEFAULT_PATIENCE,
++        min_episodes: int = 0,
++    ):
++        self.window = window
++        self.cv_threshold = cv_threshold
++        self.slope_threshold = slope_threshold
++        self.patience = patience
++        self.min_episodes = min_episodes
++        self._rewards: List[float] = []
++        self._run = 0
++        self.converged = False
++        self.converged_episode: Optional[int] = None
++
++    def update(self, episode_reward: float) -> bool:
++        """Fügt eine Episode hinzu und gibt zurück, ob JETZT Konvergenz gilt."""
++        self._rewards.append(float(episode_reward))
++        n = len(self._rewards)
++        if self.converged:
++            return True
++        if n < 2 * self.window or n < self.min_episodes:
++            return False
++        r = np.asarray(self._rewards, dtype=float)
++        span = _span(r)
++        cur = r[-self.window:]
++        prev = r[-2 * self.window:-self.window]
++        std_ok = cur.std() / span <= self.cv_threshold
++        slope_ok = abs(cur.mean() - prev.mean()) / span <= self.slope_threshold
++        if std_ok and slope_ok:
++            self._run += 1
++            if self._run >= self.patience:
++                self.converged = True
++                self.converged_episode = n
++                return True
++        else:
++            self._run = 0
++        return False
+diff -ruN a/marlon/defender_agents/defender.py b/marlon/defender_agents/defender.py
+--- a/marlon/defender_agents/defender.py	2026-08-31 11:34:08.318114618 +0200
++++ b/marlon/defender_agents/defender.py	2026-08-31 11:34:08.335213073 +0200
+@@ -21,9 +21,16 @@
+ 
+ class LearningDefender():
+     """A defender that in theory will link up into the defend_wrapper"""
++    # Fruehere Fassung: fest verdrahtet ["RDP","SSH","HTTPS","HTTP","su","sudo"],
++    # passend zu MARLons Spielzeugumgebung, nicht zu unseren Topologien.
++    # Siehe Kopfkommentar in defend_wrapper.py.
+     firewall_rule_list = ["RDP", "SSH", "HTTPS", "HTTP", "su", "sudo"]
+-    def __init__(self, cyber_env: CyberBattleEnv ) -> None:
++
++    def __init__(self, cyber_env: CyberBattleEnv) -> None:
+         self.cyber_env = cyber_env
++        # Muss dieselbe Reihenfolge haben wie im Wrapper, sonst zeigt derselbe
++        # Aktionsindex bei Pruefung und Ausfuehrung auf verschiedene Ports.
++        self.firewall_rule_list = list(cyber_env.environment.identifiers.ports)
+     def executeAction(self, next_action):
+         self.cyber_env._defender_actuator.on_attacker_step_taken()
+         def get_node_from_action(node_from_action: int):
+@@ -44,25 +51,13 @@
+             return node_info.services[port_name_from_action]
+              
+         def block_traffic(node_id: model.NodeID, port_name: model.PortName, incoming: bool):
+-            """Blocks traffic on a node to or from a port with port_name."""
+-            node_data = self.cyber_env.environment.get_node(node_id)
+-            node_info = get_node_info(node_id)
+-            rules = node_data.firewall.incoming if incoming else node_data.firewall.outgoing
+-            matching_rules = [r for r in rules if r.port == port_name]
+-            if matching_rules:
+-                for rule in matching_rules:
+-                    node_info.firewall.incoming.remove(rule) if incoming else node_info.firewall.outgoing.remove(rule)
+-        
++            """Setzt eine ausdrueckliche BLOCK-Regel ueber den CBS-Aktuator."""
++            self.cyber_env._defender_actuator.block_traffic(node_id, port_name, incoming)
++
+         def allow_traffic(node_id: model.NodeID, port_name: model.PortName, incoming: bool):
+-            """Creates a new firewall rule if one does not exist."""
+-            node_data = self.cyber_env.environment.get_node(node_id)
+-            node_info = get_node_info(node_id)
+-            rules = node_data.firewall.incoming if incoming else node_data.firewall.outgoing
+-            matching_rules = [r for r in rules if r.port == port_name]
+-            if not matching_rules:
+-                rule_to_add = model.FirewallRule(port = port_name, permission=model.RulePermission.ALLOW)
+-                node_info.firewall.incoming.append(rule_to_add) if incoming else node_info.firewall.incoming.append(rule_to_add)
+-        
++            """Setzt eine ausdrueckliche ALLOW-Regel ueber den CBS-Aktuator."""
++            self.cyber_env._defender_actuator.allow_traffic(node_id, port_name, incoming)
++
+         # If the action is invalid, the list will be empty. In this case the defender will skip its turn.
+         if len(next_action) == 0 :
+             return
+@@ -70,26 +65,20 @@
+         if next_action[0] == 0:
+             self.cyber_env._defender_actuator.reimage_node(get_node_from_action(next_action[1]))
+         
+-        # If the action is a block traffic.
++        # Verkehr sperren: eingehend, alle Dienste des Knotens.
+         elif next_action[0] == 1:
+             node_id = get_node_from_action(next_action[2])
+-            incoming = bool(next_action[4])
+-            port_name = get_firewall_port_name_from_action(next_action[3])
+-            block_traffic(node_id, port_name, incoming)
++            for dienst in get_node_info(node_id).services:
++                block_traffic(node_id, dienst.name, True)
+         
+-        # If the action is a allow traffic.
++
++        # Verkehr freigeben: eingehend, alle Dienste des Knotens.
+         elif next_action[0] == 2:
+-            node_id = get_node_from_action(next_action[5])
+-            incoming = bool(next_action[7])
+-            port_name = get_firewall_port_name_from_action(next_action[6])
+-            allow_traffic(node_id, port_name, incoming)
++            node_id = get_node_from_action(next_action[3])
++            for dienst in get_node_info(node_id).services:
++                allow_traffic(node_id, dienst.name, True)
+         
+-        # If the action is a stop service.
+-        elif next_action[0] == 3:
+-            node_id = get_node_from_action(next_action[8])
+-            self.cyber_env._defender_actuator.stop_service(node_id, get_service_port_name_from_action(node_id, next_action[9]))
+-
+-        # If the action is a start service.
+-        elif next_action[0] == 4:
+-            node_id = get_node_from_action(next_action[10])
+-            self.cyber_env._defender_actuator.start_service(node_id, get_service_port_name_from_action(node_id, next_action[11]))
+\ No newline at end of file
++
++        # Dienst stoppen und starten gibt es nicht mehr;
++        # die Aktionsarten 0 bis 2 decken den gesamten Raum ab.
++
+diff -ruN a/marlon/native_models/deepq/qeval.py b/marlon/native_models/deepq/qeval.py
+--- a/marlon/native_models/deepq/qeval.py	2026-08-31 11:34:08.319816123 +0200
++++ b/marlon/native_models/deepq/qeval.py	2026-08-31 11:34:08.336503912 +0200
+@@ -1,7 +1,7 @@
+ import sys
+ import logging
+ import torch
+-import gym
++import gymnasium as gym
+ import cyberbattle.agents.baseline.learner as learner
+ import cyberbattle.agents.baseline.agent_wrapper as w
+ from cyberbattle.agents.baseline.agent_wrapper import Verbosity
+diff -ruN a/marlon/native_models/deepq/qtrain.py b/marlon/native_models/deepq/qtrain.py
+--- a/marlon/native_models/deepq/qtrain.py	2026-08-31 11:34:08.319944224 +0200
++++ b/marlon/native_models/deepq/qtrain.py	2026-08-31 11:34:08.336637565 +0200
+@@ -1,7 +1,7 @@
+ import sys
+ import logging
+ import torch
+-import gym
++import gymnasium as gym
+ from cyberbattle.agents.baseline import learner
+ import cyberbattle.agents.baseline.agent_wrapper as w
+ import cyberbattle.agents.baseline.agent_dql as dqla
+diff -ruN a/marlon/native_models/tabularq/tabqevaly.py b/marlon/native_models/tabularq/tabqevaly.py
+--- a/marlon/native_models/tabularq/tabqevaly.py	2026-08-31 11:34:08.320638834 +0200
++++ b/marlon/native_models/tabularq/tabqevaly.py	2026-08-31 11:34:08.337165741 +0200
+@@ -1,7 +1,7 @@
+ import sys
+ import logging
+ import torch
+-import gym
++import gymnasium as gym
+ import cyberbattle.agents.baseline.learner as learner
+ import cyberbattle.agents.baseline.agent_wrapper as w
+ from cyberbattle.agents.baseline.agent_wrapper import Verbosity
+diff -ruN a/marlon/native_models/tabularq/tabqtrain.py b/marlon/native_models/tabularq/tabqtrain.py
+--- a/marlon/native_models/tabularq/tabqtrain.py	2026-08-31 11:34:08.320731158 +0200
++++ b/marlon/native_models/tabularq/tabqtrain.py	2026-08-31 11:34:08.337295677 +0200
+@@ -1,7 +1,7 @@
+ import sys
+ import logging
+ import torch
+-import gym
++import gymnasium as gym
+ from cyberbattle.agents.baseline import learner
+ import cyberbattle.agents.baseline.agent_wrapper as w
+ import cyberbattle.agents.baseline.agent_tabularqlearning as tabularq
+diff -ruN a/marlon/simulate.py b/marlon/simulate.py
+--- a/marlon/simulate.py	2026-08-31 11:34:08.320810977 +0200
++++ b/marlon/simulate.py	2026-08-31 11:34:08.337741094 +0200
+@@ -1,17 +1,36 @@
+-from typing import List, Optional
++import csv
++import math
++import os
++from collections import defaultdict
++from datetime import datetime
++from typing import Dict, List, Optional
+ 
+ from stable_baselines3 import PPO, A2C
+ import torch
+ from marlon.baseline_models.multiagent import marl_algorithm
+-from marlon.baseline_models.multiagent.baseline_marlon_agent import LoadFileBaselineAgentBuilder
++from marlon.baseline_models.multiagent.baseline_marlon_agent import (
++    BaselineAgentBuilder, LoadFileBaselineAgentBuilder, FrozenAgentBuilder,
++    MaskableAgentBuilder, MaskableFrozenAgentBuilder, MaskableLoadFileAgentBuilder
++)
+ from marlon.baseline_models.multiagent.multiagent_universe import MultiAgentUniverse
+ from marlon.baseline_models.multiagent.qcompat_agent import QCompatibilityAgentBuilder
+ from marlon.baseline_models.multiagent.random_marlon_agent import RandomAgentBuilder
+ 
++# Thesis-Topologien registrieren (idempotent – mehrfacher Aufruf schadet nicht)
++try:
++    import sys
++    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
++    from thesis_topology.envs import register_all
++    register_all()
++except Exception:
++    pass  # Thesis-Paket nicht vorhanden – Standard-Envs laufen weiter
++
+ class SimulationCache:
+     value: Optional[List[str]] = None
+ 
+-def simulate(timesteps, attacker_option, defender_option, attacker_file, defender_file):
++def simulate(timesteps: int, attacker_option: str, defender_option: str,
++             attacker_file, defender_file,
++             env_id: str = "CyberBattleToyCtf-v0") -> List:
+     if attacker_option == 'None':
+         raise ValueError('Attacker cannot be none')
+ 
+@@ -22,40 +41,321 @@
+         attacker_builder=attacker_builder,
+         defender_builder=defender_builder,
+         attacker_invalid_action_reward_modifier=0,
+-        defender_invalid_action_reward_modifier=0
++        defender_invalid_action_reward_modifier=0,
++        env_id=env_id,
++        max_timesteps=timesteps,
++        defender_reset_on_constraint_broken=False,  # nur Reward, kein Abbruch
+     )
+ 
+-    _, _, simulation = marl_algorithm.run_episode(
++    _, _, simulation, attacker_log, defender_log = marl_algorithm.run_episode(
+         attacker_agent=universe.attacker_agent,
+         defender_agent=universe.defender_agent,
+         max_steps=timesteps,
+         is_simulation=True
+     )
+ 
+-    return simulation
++    return simulation, attacker_log, defender_log
++
++
++def train(env_id: str, attacker_algo: str, defender_algo: str,
++          total_timesteps: int, episode_steps: int,
++          save_dir: str = "models",
++          attacker_file: str = None, defender_file: str = None,
++          attacker_frozen: bool = False, defender_frozen: bool = False,
++          attacker_masking: bool = False,
++          auto_stop: bool = False, auto_stop_patience: int = 10,
++          auto_stop_min_episodes: int = 30,
++          seed: int = None, consolidate: bool = True) -> Dict[str, str]:
++    """
++    Trainiert Attacker- (und optional Defender-)Agent auf dem gewählten Environment.
++    Gibt Pfade zu den gespeicherten Modellen zurück.
++
++    attacker_algo / defender_algo : "PPO" | "A2C" | "None"
++    attacker_file / defender_file : Pfad zu vortrainiertem .zip-Modell (optional).
++    attacker_frozen / defender_frozen : True = geladenes Modell wird NICHT weitertrainiert
++                                        (feste Policy als kontrollierte Baseline).
++    """
++    os.makedirs(save_dir, exist_ok=True)
++    # Mikrosekunden im Zeitstempel: sonst kollidieren run_ids paralleler Laeufe
++    # auf derselben Topologie (gleiche Sekunde) -> Aggregation verwirft Duplikate.
++    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
++    env_short = env_id.replace("-", "_").replace(".", "_")
++
++    # Seed setzen (vor Modell-/Env-Erzeugung), damit Laeufe reproduzierbar und
++    # ueber verschiedene Seeds unterscheidbar sind.
++    if seed is not None:
++        from stable_baselines3.common.utils import set_random_seed
++        set_random_seed(seed)
++
++    algo_map = {"PPO": PPO, "A2C": A2C}
++
++    if attacker_algo not in algo_map:
++        raise ValueError(f"Unbekannter Algorithmus '{attacker_algo}'. Erlaubt: PPO, A2C")
++
++    if attacker_file and attacker_frozen:
++        # Eingefroren (Defender-Matrix). Bei Masking den MaskablePPO-Frozen-Agenten.
++        attacker_builder = (MaskableFrozenAgentBuilder(file_path=attacker_file)
++                            if attacker_masking else
++                            FrozenAgentBuilder(alg_type=algo_map[attacker_algo], file_path=attacker_file))
++    elif attacker_file:
++        # Laden und weitertrainieren (Super-Attacker-Curriculum).
++        attacker_builder = (MaskableLoadFileAgentBuilder(file_path=attacker_file)
++                            if attacker_masking else
++                            LoadFileBaselineAgentBuilder(alg_type=algo_map[attacker_algo], file_path=attacker_file))
++    elif attacker_masking:
++        # Von Grund auf mit Invalid-Action-Masking (MaskablePPO).
++        attacker_builder = MaskableAgentBuilder(policy="MultiInputPolicy")
++    else:
++        attacker_builder = BaselineAgentBuilder(
++            alg_type=algo_map[attacker_algo], policy="MultiInputPolicy"
++        )
++
++    defender_builder = None
++    if defender_algo in algo_map:
++        if defender_file and defender_frozen:
++            defender_builder = FrozenAgentBuilder(
++                alg_type=algo_map[defender_algo], file_path=defender_file
++            )
++        elif defender_file:
++            defender_builder = LoadFileBaselineAgentBuilder(
++                alg_type=algo_map[defender_algo], file_path=defender_file
++            )
++        else:
++            defender_builder = BaselineAgentBuilder(
++                alg_type=algo_map[defender_algo], policy="MultiInputPolicy"
++            )
++
++    universe = MultiAgentUniverse.build(
++        attacker_builder=attacker_builder,
++        defender_builder=defender_builder,
++        attacker_invalid_action_reward_modifier=0,
++        defender_invalid_action_reward_modifier=0,
++        env_id=env_id,
++        max_timesteps=episode_steps,
++        defender_reset_on_constraint_broken=False,
++        attacker_use_masking=attacker_masking,
++    )
++
++    n_episodes = max(total_timesteps // episode_steps, 1) + 1
++
++    # Auto-Stop bei Konvergenz (nur mit Defender, d.h. in der Matrix sinnvoll).
++    convergence_monitor = None
++    if auto_stop and defender_builder is not None:
++        from marlon.convergence import ConvergenceMonitor
++        convergence_monitor = ConvergenceMonitor(
++            patience=auto_stop_patience, min_episodes=auto_stop_min_episodes
++        )
++
++    universe.learn(total_timesteps=total_timesteps, n_eval_episodes=n_episodes,
++                   convergence_monitor=convergence_monitor)
++
++    attacker_path = os.path.join(save_dir, f"ppo_attacker_{env_short}_{timestamp}")
++    defender_path = os.path.join(save_dir, f"ppo_defender_{env_short}_{timestamp}") \
++        if defender_algo in algo_map else None
++
++    universe.save(
++        attacker_filepath=attacker_path,
++        defender_filepath=defender_path,
++    )
++
++    csv_path = os.path.join(save_dir, f"training_log_{env_short}_{timestamp}.csv")
++    # Basisspalten + Action-Tracking (Angreifer- und Defender-spezifisch).
++    # Jede Zeile füllt nur die Spalten ihres Agenten; die übrigen bleiben leer.
++    base_fields = ["episode", "agent", "env_id", "algorithm", "timestep", "episode_reward", "episode_length"]
++    atk_fields = ["atk_invalid", "atk_valid", "atk_cj_reached", "atk_cj_step", "atk_won", "atk_max_owned",
++                  "atk_hold_reward", "atk_eviction"]
++    # def_stop_svc, def_stop_svc_clean und def_start_svc bleiben als Spalten
++    # erhalten, damit aeltere Auswertungsskripte weiterlaufen. Seit dem Wegfall
++    # der Dienstaktionen sind sie durchgaengig null.
++    def_fields = ["def_reimage", "def_block", "def_allow", "def_stop_svc", "def_stop_svc_clean",
++                  "def_start_svc", "def_invalid", "def_recovered", "def_sla_break_steps",
++                  "def_abwehr_reward", "def_abgeschirmt"]
++    fieldnames = base_fields + atk_fields + def_fields
++    with open(csv_path, "w", newline="", encoding="utf-8") as f:
++        writer = csv.DictWriter(f, fieldnames=fieldnames, restval="")
++        writer.writeheader()
++        for i, row in enumerate(universe.attacker_agent._episode_log):
++            writer.writerow({**row, "episode": i + 1, "agent": "attacker", "env_id": env_id, "algorithm": attacker_algo})
++        if universe.defender_agent:
++            for i, row in enumerate(universe.defender_agent._episode_log):
++                writer.writerow({**row, "episode": i + 1, "agent": "defender", "env_id": env_id, "algorithm": defender_algo})
++
++    run_id = f"{env_short}_{timestamp}"
++    # consolidate=False in parallelen Matrix-Workers, um Schreibkonflikte auf
++    # all_training_runs.csv zu vermeiden (Aggregation erfolgt danach zentral).
++    if consolidate:
++        try:
++            _consolidate_and_summarize(csv_path, run_id, datetime.now().isoformat(), env_id)
++        except Exception as exc:
++            print(f"[Warnung] Gesamtauswertung konnte nicht aktualisiert werden: {exc}")
++
++    return {
++        "attacker": attacker_path + ".zip",
++        "defender": (defender_path + ".zip") if defender_path else None,
++        "csv": csv_path,
++        "run_id": run_id,
++        "env_id": env_id,
++        "total_timesteps": total_timesteps,
++    }
++
+ 
+ def create_builder(option, file):
+     if option == 'None':
+         return None
+     elif option == 'Random':
+-        builder = RandomAgentBuilder()
++        return RandomAgentBuilder()
+     elif option == 'Load':
+         if 'pkl' in file:
+-            builder = QCompatibilityAgentBuilder(file_path=file)
++            return QCompatibilityAgentBuilder(file_path=file)
++        if 'ppo' in file:
++            alg_type = PPO
++        elif 'a2c' in file:
++            alg_type = A2C
+         else:
+-            if 'ppo' in file:
+-                alg_type = PPO
+-            elif 'a2c' in file:
+-                alg_type = A2C
++            raise ValueError(
++                f'Baseline file {file}: Typ unbekannt – bitte "ppo" oder "a2c" im Dateinamen.'
++            )
++        return LoadFileBaselineAgentBuilder(alg_type=alg_type, file_path=file)
++
++# ── Automatische Konsolidierung & Gesamtauswertung ───────────────────────────
++
++# Projekt-Root: CBS_MARLon/ (drei Ebenen über MARLon/marlon/simulate.py)
++_PROJECT_ROOT  = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
++_ALL_RUNS_CSV  = os.path.join(_PROJECT_ROOT, "all_training_runs.csv")
++_SUMMARY_CSV   = os.path.join(_PROJECT_ROOT, "training_summary.csv")
++
++_ALL_RUNS_FIELDS = [
++    "run_id", "timestamp", "episode", "agent", "env_id",
++    "algorithm", "timestep", "episode_reward", "episode_length",
++]
++_SUMMARY_FIELDS = [
++    "section", "run_id", "timestamp", "env_id", "agent", "algorithm",
++    "n_episodes", "total_timesteps",
++    "reward_mean", "reward_std", "reward_max", "reward_min",
++    "comparison_window", "first_w_mean", "last_w_mean",
++    "improvement_abs", "improvement_pct", "notes",
++]
++
++
++def _consolidate_and_summarize(csv_path: str, run_id: str, timestamp: str, env_id: str) -> None:
++    """Hängt den Trainingslauf an all_training_runs.csv an und regeneriert training_summary.csv."""
++
++    # Laufende Zeilen aus dem Training-Log lesen
++    new_rows = []
++    with open(csv_path, newline="", encoding="utf-8") as f:
++        for row in csv.DictReader(f):
++            new_rows.append({
++                "run_id":         run_id,
++                "timestamp":      timestamp,
++                "episode":        row["episode"],
++                "agent":          row["agent"],
++                "env_id":         row["env_id"],
++                "algorithm":      row["algorithm"],
++                "timestep":       row["timestep"],
++                "episode_reward": row["episode_reward"],
++                "episode_length": row["episode_length"],
++            })
++
++    # Bereits vorhandene run_ids prüfen (Idempotenz)
++    existing_ids: set[str] = set()
++    if os.path.exists(_ALL_RUNS_CSV):
++        with open(_ALL_RUNS_CSV, newline="", encoding="utf-8") as f:
++            existing_ids = {r["run_id"] for r in csv.DictReader(f)}
++
++    if run_id not in existing_ids:
++        write_header = not os.path.exists(_ALL_RUNS_CSV)
++        with open(_ALL_RUNS_CSV, "a", newline="", encoding="utf-8") as f:
++            w = csv.DictWriter(f, fieldnames=_ALL_RUNS_FIELDS)
++            if write_header:
++                w.writeheader()
++            w.writerows(new_rows)
++
++    _generate_summary(_ALL_RUNS_CSV, _SUMMARY_CSV)
++
++
++def _generate_summary(all_runs_path: str, summary_path: str) -> None:
++    """Liest all_training_runs.csv und schreibt aggregate Statistiken nach training_summary.csv."""
++
++    if not os.path.exists(all_runs_path):
++        return
++
++    rewards_by: dict = defaultdict(list)
++    max_ts:     dict = defaultdict(int)
++    meta:       dict = {}
++
++    with open(all_runs_path, newline="", encoding="utf-8") as f:
++        for row in csv.DictReader(f):
++            key = (row["run_id"], row["agent"])
++            rewards_by[key].append(float(row["episode_reward"]))
++            max_ts[key] = max(max_ts[key], int(row["timestep"]))
++            if key not in meta:
++                meta[key] = {
++                    "timestamp": row["timestamp"],
++                    "env_id":    row["env_id"],
++                    "algorithm": row["algorithm"],
++                }
++
++    att_ids = {k[0] for k in rewards_by if k[1] == "attacker"}
++    def_ids = {k[0] for k in rewards_by if k[1] == "defender"}
++    pre_ids = att_ids - def_ids
++
++    out = []
++    for run_id in sorted(att_ids):
++        is_pre  = run_id in pre_ids
++        section = "PRETRAINING" if is_pre else "DEFENDER_RUN"
++        agents  = ["attacker"] if is_pre else ["attacker", "defender"]
++
++        for agent in agents:
++            key = (run_id, agent)
++            if key not in rewards_by:
++                continue
++            vals = rewards_by[key]
++            n    = len(vals)
++            mean = sum(vals) / n
++            std  = math.sqrt(sum((v - mean) ** 2 for v in vals) / n)
++            w    = max(1, min(5, n // 3))
++            f_m  = sum(vals[:w]) / w
++            l_m  = sum(vals[-w:]) / w
++            imp_abs = round(l_m - f_m, 2)
++            imp_pct = round(imp_abs / abs(f_m) * 100, 1) if f_m != 0 else 0.0
++
++            m = meta[key]
++            thesis_topos = ("Flat", "HubSpoke", "DMZ", "MicroSeg")
++            if is_pre:
++                note = "Attacker-only Pretraining"
++            elif agent == "attacker":
++                note = "RA lief parallel zum BA-Training"
++            elif any(t in m["env_id"] for t in thesis_topos):
++                note = "BA Defender-Training"
+             else:
+-                raise ValueError(f'Baseline file {file} type could not be determined, please include `ppo` or `a2c` in the file name.')
++                note = "Legacy-Topologie (vor Thesis-Redesign)"
+ 
+-            builder = LoadFileBaselineAgentBuilder(
+-                alg_type=alg_type,
+-                file_path=file
+-            )
++            out.append({
++                "section":           section,
++                "run_id":            run_id,
++                "timestamp":         m["timestamp"],
++                "env_id":            m["env_id"],
++                "agent":             agent,
++                "algorithm":         m["algorithm"],
++                "n_episodes":        n,
++                "total_timesteps":   max_ts[key],
++                "reward_mean":       round(mean, 2),
++                "reward_std":        round(std, 2),
++                "reward_max":        round(max(vals), 1),
++                "reward_min":        round(min(vals), 1),
++                "comparison_window": w,
++                "first_w_mean":      round(f_m, 2),
++                "last_w_mean":       round(l_m, 2),
++                "improvement_abs":   imp_abs,
++                "improvement_pct":   imp_pct,
++                "notes":             note,
++            })
++
++    with open(summary_path, "w", newline="", encoding="utf-8") as f:
++        writer = csv.DictWriter(f, fieldnames=_SUMMARY_FIELDS)
++        writer.writeheader()
++        writer.writerows(out)
+ 
+-    return builder
+ 
+ if __name__ == "__main__":
+     simulate(2000, 'Load', 'None', 'ppo.zip', None)
+diff -ruN a/templates/index.html b/templates/index.html
+--- a/templates/index.html	2026-08-31 11:34:08.321621095 +0200
++++ b/templates/index.html	2026-08-31 11:34:08.340580948 +0200
+@@ -1,292 +1,530 @@
+ <!doctype html>
+ <html>
+-    <style>
+-        .d1 {
+-            padding-left:32px;
+-            border: 3px solid black;
+-            background-color: #0d1117;
+-        }
+-        
+-        .simulate {
+-            box-shadow:inset 0px 1px 0px 0px #a4e271;
+-            background:linear-gradient(to bottom, #89c403 5%, #77a809 100%);
+-            background-color:#89c403;
+-            border-radius:6px;
+-            border:1px solid #74b807;
+-            display:inline-block;
+-            cursor:pointer;
+-            color:#ffffff;
+-            font-family:Arial;
+-            font-size:15px;
+-            font-weight:bold;
+-            padding:6px 24px;
+-            text-decoration:none;
+-            text-shadow:0px 1px 0px #528009;
+-        }
+-        .simulate:hover {
+-            background:linear-gradient(to bottom, #77a809 5%, #89c403 100%);
+-            background-color:#77a809;
+-        }
+-        .simulate:active {
+-            position:relative;
+-            top:1px;
+-        }
+-
+-        .defender {
+-            box-shadow:inset 0px 1px 0px 0px #29bbff;
+-            background:linear-gradient(to bottom, #2dabf9 5%, #0688fa 100%);
+-            background-color:#2dabf9;
+-            border-radius:6px;
+-            border:1px solid #0b0e07;
+-            display:inline-block;
+-            cursor:pointer;
+-            color:#ffffff;
+-            font-family:Arial;
+-            font-size:15px;
+-            padding:6px 24px;
+-            text-decoration:none;
+-            text-shadow:0px 1px 0px #263666;
+-        }
+-        .defender:hover {
+-            background:linear-gradient(to bottom, #0688fa 5%, #2dabf9 100%);
+-            background-color:#0688fa;
+-        }
+-        .defender:active {
+-            position:relative;
+-            top:1px;
+-        }
+-
+-        .attacker {
+-            box-shadow:inset 0px 1px 0px 0px #fa0d0d;
+-            background:linear-gradient(to bottom, #960f0f 5%, #e62828 100%);
+-            background-color:#960f0f;
+-            border-radius:6px;
+-            border:1px solid #0b0e07;
+-            display:inline-block;
+-            cursor:pointer;
+-            color:#ffffff;
+-            font-family:Arial;
+-            font-size:15px;
+-            padding:6px 24px;
+-            text-decoration:none;
+-            text-shadow:0px 1px 0px #263666;
+-        }
+-        .attacker:hover {
+-            background:linear-gradient(to bottom, #e62828 5%, #960f0f 100%);
+-            background-color:#e62828;
+-        }
+-        .attacker:active {
+-            position:relative;
+-            top:1px;
+-        }
+-        
+-        .tab {
+-        overflow: hidden;
+-        background-color: #242424;
+-        width: 350px;
+-        }
+-
+-        .tab button {
+-        background-color: inherit;
+-        float: left;
+-        border: none;
+-        outline: none;
+-        cursor: pointer;
+-        padding: 14px 16px;
+-        transition: 0.3s;
+-        color: #c9d1d9;
+-        }
+-
+-        .tab button:hover {
+-        background-color: #ddd;
+-        }
+-
+-        .tab button.active {
+-        background-color: #3a3b3d;
+-        }
+-
+-        .tabcontent {
+-        display: none;
+-        padding: 6px;
+-        border-top: none;
+-        background-color: #3a3b3d;
+-        width: 338px;
+-        }
+-
+-    </style>
+-    <body style="background-color: rgb(44, 43, 43);">
+-        <div class="d1">
+-        <span style="color: #c9d1d9;">
+-            <h1>MARLon</h1>
+-            <h2><span style="color:rgb(126, 17, 17);">Attacker ID: {{attacker_name}}</span>&emsp; 
+-                <span style="color: blue;">Defender ID: {{defender_name}}</span> &emsp; 
+-                Current Score: <span id="spnScore">-</span></h2>
+-            <strong>Switch to: </strong><button class="button defender" id="btnView">Defender View</button>
+-            <br/><br/>
+-            <div id='chart' class='chart'”></div>
+-            <br/>
+-            
+-            <h4>Agent Configurator</h4>
+-            <div class="tab">
+-                <button class="tablinks" onclick="openAgentConfig(event, 'Attacker')">Attacker</button>
+-                <button class="tablinks" onclick="openAgentConfig(event, 'Defender')">Defender</button>
+-            </div>
+-
+-            <form action="/upload-file" method="POST" enctype="multipart/form-data">
+-                <div id="Attacker" class="tabcontent">
+-                    <h4>Attacker</h4>
+-                    <input type="radio" onclick="javascript:yesnoCheck('noAttacker');" name="attackerOptions" id="attackerRandom" value="Random" checked> Random
+-                    <input type="radio" onclick="javascript:yesnoCheck('attacker');" name="attackerOptions" id="attackerLoad" value="Load"> Load Trained Model
+-                    <div id="ifYesAttacker" style="visibility:hidden">
+-                        <br/>
+-                        <strong>Select Attacker File</strong>
+-                        <input type="file" class="custom-file-input" name="attackerFile" id="aFile">
+-                        <br/>
+-                    </div>
+-
++<style>
++body { background-color: #2c2b2b; color: #c9d1d9; font-family: Arial, sans-serif; }
++.d1  { padding: 16px 32px; border: 3px solid #000; background-color: #0d1117; }
++
++/* ── Buttons ── */
++.simulate {
++    box-shadow: inset 0 1px 0 #a4e271;
++    background: linear-gradient(to bottom, #89c403 5%, #77a809);
++    border-radius: 6px; border: 1px solid #74b807;
++    cursor: pointer; color: #fff; font-size: 15px; font-weight: bold;
++    padding: 6px 24px; text-shadow: 0 1px 0 #528009;
++}
++.simulate:hover { background: linear-gradient(to bottom, #77a809 5%, #89c403); }
++.train-btn {
++    box-shadow: inset 0 1px 0 #ffe08a;
++    background: linear-gradient(to bottom, #e6a817 5%, #c98a00);
++    border-radius: 6px; border: 1px solid #b87d00;
++    cursor: pointer; color: #fff; font-size: 15px; font-weight: bold;
++    padding: 6px 24px;
++}
++.train-btn:hover { background: linear-gradient(to bottom, #c98a00 5%, #e6a817); }
++.defender {
++    box-shadow: inset 0 1px 0 #29bbff;
++    background: linear-gradient(to bottom, #2dabf9 5%, #0688fa);
++    border-radius: 6px; border: 1px solid #0b0e07;
++    cursor: pointer; color: #fff; font-size: 15px;
++    padding: 6px 24px; text-shadow: 0 1px 0 #263666;
++}
++.defender:hover { background: linear-gradient(to bottom, #0688fa 5%, #2dabf9); }
++.attacker {
++    box-shadow: inset 0 1px 0 #fa0d0d;
++    background: linear-gradient(to bottom, #960f0f 5%, #e62828);
++    border-radius: 6px; border: 1px solid #0b0e07;
++    cursor: pointer; color: #fff; font-size: 15px;
++    padding: 6px 24px; text-shadow: 0 1px 0 #263666;
++}
++.attacker:hover { background: linear-gradient(to bottom, #e62828 5%, #960f0f); }
++
++/* ── Tabs ── */
++.tab { overflow: hidden; background-color: #242424; width: 420px; }
++.tab button {
++    background: inherit; float: left; border: none; outline: none;
++    cursor: pointer; padding: 14px 16px; transition: 0.3s; color: #c9d1d9;
++}
++.tab button:hover { background: #ddd; color: #000; }
++.tab button.active { background: #3a3b3d; }
++.tabcontent { display: none; padding: 10px; background: #3a3b3d; width: 400px; }
++
++/* ── Viz row: chart left, stats right ── */
++.viz-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
++#chart   { flex: 0 0 auto; }
++
++/* ── Stats panel ── */
++.stats-panel {
++    flex: 1 1 260px; min-width: 240px;
++    background: #161b22; border: 1px solid #30363d;
++    border-radius: 6px; padding: 12px 14px;
++}
++.stats-panel h4 { margin: 0 0 10px; color: #89c403; font-size: 13px; text-transform: uppercase; }
++.stat-box { background: #21262d; border-radius: 4px; padding: 8px 10px; margin-bottom: 8px; }
++.stat-label { font-size: 10px; color: #8b949e; text-transform: uppercase; letter-spacing: .5px; }
++.stat-value { font-size: 18px; font-weight: bold; color: #c9d1d9; line-height: 1.2; }
++.stat-value.good { color: #3fb950; }
++.stat-value.warn { color: #d29922; }
++.stat-value.bad  { color: #f85149; }
++.stat-sub { font-size: 10px; color: #8b949e; margin-top: 2px; }
++
++/* ── Action log ── */
++.log-panel {
++    margin-top: 14px;
++    background: #161b22; border: 1px solid #30363d; border-radius: 6px;
++    padding: 10px 14px;
++}
++.log-panel h4 { margin: 0 0 8px; color: #89c403; font-size: 13px; text-transform: uppercase; display: inline; }
++.log-view-badge {
++    display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 3px;
++    font-size: 11px; font-weight: bold; vertical-align: middle;
++}
++.log-view-badge.atk { background: #3d1111; color: #f85149; }
++.log-view-badge.def { background: #0d2137; color: #2dabf9; }
++.log-filters { margin: 8px 0; display: flex; gap: 8px; flex-wrap: wrap; }
++.log-filters label { font-size: 12px; cursor: pointer; user-select: none; }
++.log-filters input { cursor: pointer; }
++#logList {
++    height: 260px; overflow-y: auto;
++    font-family: monospace; font-size: 12px; line-height: 1.6;
++    background: #0d1117; border-radius: 4px; padding: 8px 10px;
++}
++.log-entry { display: flex; gap: 8px; padding: 1px 0; }
++.log-step  { color: #8b949e; min-width: 52px; }
++.log-kind  { min-width: 110px; font-weight: bold; }
++/* Attacker kinds */
++.log-kind.LATERAL_MOVE { color: #f85149; }
++.log-kind.CREDS_FOUND  { color: #d29922; }
++.log-kind.DISCOVERY    { color: #79c0ff; }
++.log-kind.REWARD       { color: #3fb950; }
++/* Defender kinds */
++.log-kind.REIMAGE      { color: #3fb950; }
++.log-kind.BLOCK        { color: #d29922; }
++.log-kind.ALLOW        { color: #79c0ff; }
++.log-kind.STOP_SVC     { color: #e3a04a; }
++.log-kind.START_SVC    { color: #79c0ff; }
++/* shared */
++.log-kind.FAILED       { color: #484f58; }
++.log-detail { color: #c9d1d9; }
++.log-reward { color: #3fb950; min-width: 50px; text-align: right; }
++
++/* ── Train result ── */
++.train-result {
++    background: #161b22; border: 1px solid #30363d;
++    border-radius: 6px; padding: 12px 16px; margin-top: 12px;
++}
++.train-result.ok  { border-color: #3fb950; }
++.train-result.err { border-color: #f85149; }
++.path-box {
++    background: #21262d; border-radius: 4px; padding: 6px 10px;
++    font-family: monospace; font-size: 12px; margin-top: 4px; word-break: break-all;
++}
++
++/* ── Forms ── */
++input[type=number], select {
++    background: #242424; color: #c9d1d9; border: 1px solid #30363d;
++    padding: 4px 6px; font-size: 13px; width: 100%; box-sizing: border-box;
++    border-radius: 3px;
++}
++.field { margin-top: 8px; }
++.field > label { font-size: 12px; color: #8b949e; }
++</style>
++
++<body>
++<div class="d1">
++    <h1>MARLon</h1>
++    {% if sim_error %}
++    <div style="background:#3b0000;border:1px solid #c83232;border-radius:6px;padding:10px 16px;margin-bottom:12px;color:#ff8080;">
++        <strong>Simulation Error:</strong> {{ sim_error }}
++    </div>
++    {% endif %}
++    <h2>
++        <span style="color:#c83232;">Attacker: {{attacker_name}}</span>&emsp;
++        <span style="color:#2dabf9;">Defender: {{defender_name}}</span>&emsp;
++        <span style="color:#89c403;">Topology: {{topology_name}}</span>&emsp;
++        Score: <span id="spnScore">-</span>
++    </h2>
++
++    <strong>Switch to: </strong>
++    <button class="defender" id="btnView">Defender View</button>
++    <br/><br/>
++
++    <!-- ── Chart + Stats nebeneinander ── -->
++    <div class="viz-row">
++        <div id="chart"></div>
++
++        {% if stats %}
++        <div class="stats-panel">
++            <h4>Run Statistics</h4>
++
++            <div class="stat-box">
++                <div class="stat-label">Steps</div>
++                <div class="stat-value {% if stats.early_stop %}warn{% endif %}">
++                    {{ stats.steps_taken }} <span style="font-size:12px;color:#8b949e;">/ {{ stats.max_steps }}</span>
+                 </div>
++                <div class="stat-sub">{% if stats.early_stop %}terminated early{% else %}full run{% endif %}</div>
++            </div>
++
++            <div class="stat-box">
++                <div class="stat-label">Attacker Reward</div>
++                <div class="stat-value {% if stats.att_score > 0 %}good{% endif %}">{{ stats.att_score }}</div>
++                {% if stats.goal_reached %}
++                <div class="stat-sub" style="color:#3fb950;">Crown Jewel erreicht!</div>
++                {% endif %}
++            </div>
+ 
+-                <div id="Defender" class="tabcontent">
+-                    <h4>Defender</h4>
+-                    <input type="radio" onclick="javascript:yesnoCheck('noDefender');" name="defenderOptions" id="defenderNone" value="None" checked> None
+-                    <input type="radio" onclick="javascript:yesnoCheck('noDefender');" name="defenderOptions" id="defenderRandom" value="Random"> Random
+-                    <input type="radio" onclick="javascript:yesnoCheck('defender');" name="defenderOptions" id="defenderLoad" value="Load"> Load Trained Model
+-                    
+-                    <div id="ifYesDefender" style="visibility:hidden">
+-                        <br/>
+-                        <strong>Select Defender File</strong>
+-                        <input type="file" class="custom-file-input" name="defenderFile" id="dFile">
+-                        <br/>
+-                    </div>
++            <div class="stat-box">
++                <div class="stat-label">Defender Reward</div>
++                <div class="stat-value {% if stats.def_score > 0 %}good{% elif stats.def_score < 0 %}bad{% endif %}">
++                    {{ stats.def_score }}
+                 </div>
++            </div>
+ 
+-                <br/>
+-                <button type="submit" class="button simulate">Simulate</button>
+-                <br/>
+-            </form>
+-            <br/>
+-            
+-            <button id="btnPrevious" disabled>Previous</button>
+-            <span id="spnProgress"></span>
+-            <button id="btnNext">Next</button>
+-            <br/><br/>
+-        </span>
+-        </div>    
+-    </body>
++            <div class="stat-box">
++                <div class="stat-label">Reward Events</div>
++                <div class="stat-value">{{ stats.events }}</div>
++                <div class="stat-sub">Snapshots recorded</div>
++            </div>
+ 
+-<script src='https://cdn.plot.ly/plotly-latest.min.js'></script>
+-<script type='text/javascript'>
+-    async function renderGraph (index) {
+-        //graphs[index][num]:
+-        // num:
+-        //  0(Attacker Graph)
+-        //  1(Defender Graph)
+-        //  2(Current Step in Graph)
+-        //  3(Attacker Score)
+-        //  4(Defender Score)
+-        Plotly.newPlot('chart',graphs[index][graphSelect],{});
+-        max_sim = graphs[num_graphs-1][2]
+-        spnProgress.textContent = (graphs[index][2]) + '/' + (max_sim);
+-        
+-        if (defenderView){
+-            return graphs[index][4];
+-        }
+-        return graphs[index][3];
+-    }
++            <div class="stat-box">
++                <div class="stat-label">Ø Steps / Event</div>
++                <div class="stat-value">
++                    {% if stats.events > 0 %}{{ (stats.steps_taken / stats.events)|round(0)|int }}{% else %}–{% endif %}
++                </div>
++            </div>
+ 
+-    async function updateGraph () {
+-        let current_score = await renderGraph(index);
+-        spnScore.textContent = current_score;
+-        if (index == num_graphs-1) {
+-            btnNext.disabled = true;
+-            btnPrevious.disabled = false;
+-        } else if (index == 0) {
+-            btnNext.disabled = false;
+-            btnPrevious.disabled = true;
+-        } else {
+-            btnNext.disabled = false;
+-            btnPrevious.disabled = false;
+-        }
+-    }
++            <div class="stat-box">
++                <div class="stat-label">Early Stop</div>
++                <div class="stat-value {% if stats.early_stop %}warn{% else %}good{% endif %}">
++                    {% if stats.early_stop %}Yes{% else %}No{% endif %}
++                </div>
++                <div class="stat-sub">
++                    {% if stats.early_stop %}env.done before max_steps{% else %}max_steps reached{% endif %}
++                </div>
++            </div>
++        </div>
++        {% endif %}
++    </div>
++
++    <!-- Navigation -->
++    <button id="btnPrevious" disabled>Previous</button>
++    <span id="spnProgress"></span>
++    <button id="btnNext">Next</button>
++    <br/>
++
++    <!-- ── Action Log ── -->
++    {% if attacker_log or defender_log %}
++    <div class="log-panel">
++        <h4>Agent Action Log</h4>
++        <span class="log-view-badge atk" id="logBadge">ATTACKER</span>
++        <span style="color:#8b949e; font-size:11px; margin-left:6px;" id="logCount"></span>
++
++        <!-- Attacker filters -->
++        <div class="log-filters" id="atkFilters">
++            <label><input type="checkbox" id="chkLateral"   checked onchange="filterLog()"> <span class="log-kind LATERAL_MOVE">LATERAL_MOVE</span></label>
++            <label><input type="checkbox" id="chkCreds"     checked onchange="filterLog()"> <span class="log-kind CREDS_FOUND">CREDS_FOUND</span></label>
++            <label><input type="checkbox" id="chkDiscovery" checked onchange="filterLog()"> <span class="log-kind DISCOVERY">DISCOVERY</span></label>
++            <label><input type="checkbox" id="chkReward"    checked onchange="filterLog()"> <span class="log-kind REWARD">REWARD</span></label>
++            <label><input type="checkbox" id="chkFailed"           onchange="filterLog()"> <span class="log-kind FAILED">FAILED</span></label>
++        </div>
++        <!-- Defender filters -->
++        <div class="log-filters" id="defFilters" style="display:none;">
++            <label><input type="checkbox" id="chkReimage"  checked onchange="filterLog()"> <span class="log-kind REIMAGE">REIMAGE</span></label>
++            <label><input type="checkbox" id="chkBlock"    checked onchange="filterLog()"> <span class="log-kind BLOCK">BLOCK</span></label>
++            <label><input type="checkbox" id="chkAllow"    checked onchange="filterLog()"> <span class="log-kind ALLOW">ALLOW</span></label>
++            <label><input type="checkbox" id="chkStopSvc"  checked onchange="filterLog()"> <span class="log-kind STOP_SVC">STOP_SVC</span></label>
++            <label><input type="checkbox" id="chkStartSvc" checked onchange="filterLog()"> <span class="log-kind START_SVC">START_SVC</span></label>
++            <label><input type="checkbox" id="chkDefFailed"       onchange="filterLog()"> <span class="log-kind FAILED">FAILED</span></label>
++        </div>
++        <div id="logList"></div>
++    </div>
++    {% endif %}
++
++    <br/>
++
++    <!-- ── Train Result ── -->
++    {% if train_result %}
++    <div class="train-result {% if train_result.success %}ok{% else %}err{% endif %}">
++        {% if train_result.success %}
++        <h4 style="color:#3fb950; margin:0 0 8px;">Training abgeschlossen</h4>
++        <div>Topology: <strong>{{ train_result.env }}</strong> &nbsp;|&nbsp; Steps: <strong>{{ train_result.steps }}</strong></div>
++        <div class="field"><label>Attacker-Modell:</label>
++            <div class="path-box">{{ train_result.attacker }}</div></div>
++        {% if train_result.defender %}
++        <div class="field"><label>Defender-Modell:</label>
++            <div class="path-box">{{ train_result.defender }}</div></div>
++        {% endif %}
++        {% if train_result.csv %}
++        <div class="field"><label>Trainingsdaten (CSV):</label>
++            <div class="path-box">{{ train_result.csv }}</div></div>
++        <div style="margin-top:6px;">
++            <a href="/download-csv?path={{ train_result.csv | urlencode }}"
++               style="color:#3fb950; font-size:13px;">⬇ CSV herunterladen</a>
++        </div>
++        {% endif %}
++        <div style="margin-top:8px; font-size:12px; color:#8b949e;">
++            Pfad im Simulate-Tab → "Load Trained Model" einfügen.
++        </div>
++        {% else %}
++        <h4 style="color:#f85149; margin:0 0 8px;">Training fehlgeschlagen</h4>
++        <div class="path-box" style="color:#f85149;">{{ train_result.error }}</div>
++        {% endif %}
++    </div>
++    {% endif %}
++
++    <br/>
++
++    <!-- ── Agent Configurator ── -->
++    <h4>Agent Configurator</h4>
++    <div class="tab">
++        <button class="tablinks" onclick="openTab(event,'Simulate')">Simulate</button>
++        <button class="tablinks" onclick="openTab(event,'Train')">Train</button>
++    </div>
++
++    <!-- SIMULATE TAB -->
++    <div id="Simulate" class="tabcontent">
++        <form action="/upload-file" method="POST" enctype="multipart/form-data">
++            <h4>Attacker</h4>
++            <input type="radio" onclick="yesnoCheck('noAttacker');" name="attackerOptions" value="Random" checked> Random
++            <input type="radio" onclick="yesnoCheck('attacker');" name="attackerOptions" value="Load"> Load Trained Model
++            <div id="ifYesAttacker" style="visibility:hidden; margin-top:4px;">
++                <strong>Select Attacker File (.zip)</strong>
++                <input type="file" name="attackerFile">
++            </div>
+ 
+-    var num_graphs = {{num_graphs | safe}}
+-    var graphs = {{graphs | safe}}
+-    var index = 0;
+-    var graphSelect = 0;
+-
+-    var spnProgress = document.getElementById("spnProgress");
+-    var spnScore = document.getElementById('spnScore');
+-    var btnNext = document.getElementById("btnNext");
+-    btnNext.onclick=async () => {
+-        ++index;
+-        await updateGraph();
+-    }
++            <h4>Defender</h4>
++            <input type="radio" onclick="yesnoCheck('noDefender');" name="defenderOptions" value="None" checked> None
++            <input type="radio" onclick="yesnoCheck('noDefender');" name="defenderOptions" value="Random"> Random
++            <input type="radio" onclick="yesnoCheck('defender');" name="defenderOptions" value="Load"> Load Trained Model
++            <div id="ifYesDefender" style="visibility:hidden; margin-top:4px;">
++                <strong>Select Defender File (.zip)</strong>
++                <input type="file" name="defenderFile">
++            </div>
+ 
+-    var btnPrevious = document.getElementById("btnPrevious");
+-    btnPrevious.onclick=async () => {
+-        --index;
+-        await updateGraph();
+-    }
+-    
+-    var defenderView = false;
+-    var btnView = document.getElementById("btnView");
+-    btnView.onclick=async () => {
+-        defenderView = !defenderView;
+-        if(defenderView){
+-            btnView.innerHTML = 'Attacker View';
+-            btnView.className = 'button attacker';
+-            graphSelect = 1;
+-        }
+-        else{
+-            btnView.innerHTML = 'Defender View';
+-            btnView.className = 'button defender';
+-            graphSelect = 0;
+-        }
+-        await updateGraph();
+-    }
++            <h4>Environment</h4>
++            <div class="field"><label>Topology</label>
++                <select name="topologyOption">
++                    {% for eid, label in topology_options.items() %}
++                    <option value="{{ eid }}">{{ label }}</option>
++                    {% endfor %}
++                </select>
++            </div>
++            <div class="field"><label>Steps per Episode</label>
++                <input type="number" name="timesteps" value="2000" min="50" max="20000" step="100">
++            </div>
++            <br/>
++            <button type="submit" class="simulate">Simulate</button>
++        </form>
++    </div>
++
++    <!-- TRAIN TAB -->
++    <div id="Train" class="tabcontent">
++        <form action="/train" method="POST" enctype="multipart/form-data">
++            <p style="color:#d29922; font-size:12px; margin-top:4px;">
++                Training blockiert den Browser bis zum Abschluss.<br>
++                Test: 5 000 Steps &nbsp;|&nbsp; Bachelorarbeit: 50 000 – 200 000 Steps
++            </p>
++            <h4>Algorithmus</h4>
++            <div class="field"><label>Attacker</label>
++                <select name="attackerAlgo">
++                    <option value="PPO">PPO (empfohlen)</option>
++                    <option value="A2C">A2C</option>
++                </select>
++            </div>
++            <div class="field"><label>Defender</label>
++                <select name="defenderAlgo">
++                    <option value="None">None</option>
++                    <option value="PPO">PPO</option>
++                    <option value="A2C">A2C</option>
++                </select>
++            </div>
++            <h4>Environment</h4>
++            <div class="field"><label>Topology</label>
++                <select name="topologyOption">
++                    {% for eid, label in topology_options.items() %}
++                    <option value="{{ eid }}" {% if "Chain" in label %}selected{% endif %}>{{ label }}</option>
++                    {% endfor %}
++                </select>
++            </div>
++            <div class="field"><label>Total Training Steps (über alle Episoden)</label>
++                <input type="number" name="totalSteps" value="10000" min="1000" max="500000" step="1000">
++            </div>
++            <div class="field"><label>Max Steps per Episode</label>
++                <input type="number" name="episodeSteps" value="2000" min="100" max="20000" step="100">
++            </div>
++            <h4 style="margin-top:14px;">Vortrainiertes Modell laden <span style="color:#888; font-weight:normal; font-size:12px;">(optional)</span></h4>
++            <p style="color:#888; font-size:11px; margin:0 0 6px;">
++                .zip-Datei aus einem vorherigen Training hochladen.<br>
++                Ohne Datei wird von Null trainiert.
++            </p>
++            <div class="field">
++                <label>Attacker-Modell (.zip)</label>
++                <input type="file" id="trainAttackerFile" name="trainAttackerFile" accept=".zip"
++                       style="color:#c9d1d9;" onchange="showModeOptions('attacker', this)">
++            </div>
++            <div id="attackerModeBox" style="display:none; margin:4px 0 10px 8px; font-size:13px;">
++                <label style="margin-right:16px;">
++                    <input type="radio" name="attackerMode" value="frozen" checked>
++                    &nbsp;Einfrieren &nbsp;<span style="color:#888; font-size:11px;">(empfohlen f&#252;r BA – feste Policy, kein Lernen)</span>
++                </label><br>
++                <label>
++                    <input type="radio" name="attackerMode" value="finetune">
++                    &nbsp;Weitertrainieren &nbsp;<span style="color:#888; font-size:11px;">(Finetuning – Policy wird fortgesetzt)</span>
++                </label>
++            </div>
++            <div class="field">
++                <label>Defender-Modell (.zip)</label>
++                <input type="file" id="trainDefenderFile" name="trainDefenderFile" accept=".zip"
++                       style="color:#c9d1d9;" onchange="showModeOptions('defender', this)">
++            </div>
++            <div id="defenderModeBox" style="display:none; margin:4px 0 10px 8px; font-size:13px;">
++                <label style="margin-right:16px;">
++                    <input type="radio" name="defenderMode" value="frozen" checked>
++                    &nbsp;Einfrieren &nbsp;<span style="color:#888; font-size:11px;">(feste Policy, kein Lernen)</span>
++                </label><br>
++                <label>
++                    <input type="radio" name="defenderMode" value="finetune">
++                    &nbsp;Weitertrainieren &nbsp;<span style="color:#888; font-size:11px;">(Finetuning – Policy wird fortgesetzt)</span>
++                </label>
++            </div>
++            <br/>
++            <button type="submit" class="train-btn">Train</button>
++        </form>
++    </div>
++    <br/>
++</div>
++</body>
+ 
+-    if(num_graphs == 0){
+-        btnNext.disabled = true;
+-        btnPrevious.disabled = true;
+-        btnView.disabled = true;
+-    }
+-    else{
+-        updateGraph();
++<script src='https://cdn.plot.ly/plotly-latest.min.js'></script>
++<script>
++// ── Train tab: zeige Einfrieren/Finetuning-Option wenn Datei gewählt ──
++function showModeOptions(role, input) {
++    var box = document.getElementById(role + 'ModeBox');
++    box.style.display = input.files.length > 0 ? 'block' : 'none';
++}
++
++// ── Graph navigation ──────────────────────────────────────────────────
++var num_graphs  = {{num_graphs | safe}};
++var graphs      = {{graphs | safe}};
++var index       = 0;
++var graphSelect = 0;
++var defenderView = false;
++
++var spnProgress = document.getElementById("spnProgress");
++var spnScore    = document.getElementById("spnScore");
++var btnNext     = document.getElementById("btnNext");
++var btnPrev     = document.getElementById("btnPrevious");
++var btnView     = document.getElementById("btnView");
++
++async function renderGraph(i) {
++    Plotly.newPlot('chart', graphs[i][graphSelect], {});
++    spnProgress.textContent = graphs[i][2] + '/' + graphs[num_graphs-1][2];
++    return defenderView ? graphs[i][4] : graphs[i][3];
++}
++async function updateGraph() {
++    var score = await renderGraph(index);
++    spnScore.textContent = score;
++    btnNext.disabled = (index == num_graphs - 1);
++    btnPrev.disabled = (index == 0);
++}
++btnNext.onclick = async () => { ++index; await updateGraph(); };
++btnPrev.onclick = async () => { --index; await updateGraph(); };
++btnView.onclick = async () => {
++    defenderView = !defenderView;
++    btnView.innerHTML = defenderView ? 'Attacker View' : 'Defender View';
++    btnView.className = defenderView ? 'attacker' : 'defender';
++    graphSelect = defenderView ? 1 : 0;
++    await updateGraph();
++    filterLog();   // Log-Panel zur neuen Ansicht wechseln
++};
++if (num_graphs === 0) {
++    btnNext.disabled = true; btnPrev.disabled = true; btnView.disabled = true;
++} else {
++    updateGraph();
++}
++
++// ── Tabs ──────────────────────────────────────────────────────────────
++function openTab(evt, name) {
++    document.querySelectorAll('.tabcontent').forEach(t => t.style.display = 'none');
++    document.querySelectorAll('.tablinks').forEach(b => b.className = b.className.replace(' active',''));
++    document.getElementById(name).style.display = 'block';
++    evt.currentTarget.className += ' active';
++}
++document.querySelector('.tablinks').click();
++
++function yesnoCheck(agent) {
++    var atk = document.getElementById('ifYesAttacker');
++    var def = document.getElementById('ifYesDefender');
++    if      (agent === 'attacker')   atk.style.visibility = 'visible';
++    else if (agent === 'defender')   def.style.visibility = 'visible';
++    else if (agent === 'noAttacker') atk.style.visibility = 'hidden';
++    else if (agent === 'noDefender') def.style.visibility = 'hidden';
++}
++
++// ── Action log ────────────────────────────────────────────────────────
++var attackerLogData = {{ attacker_log | tojson }};
++var defenderLogData = {{ defender_log | tojson }};
++
++function filterLog() {
++    var list = document.getElementById('logList');
++    if (!list) return;
++
++    var show;
++    if (!defenderView) {
++        show = {
++            LATERAL_MOVE: document.getElementById('chkLateral')  ?.checked ?? true,
++            CREDS_FOUND:  document.getElementById('chkCreds')    ?.checked ?? true,
++            DISCOVERY:    document.getElementById('chkDiscovery')?.checked ?? true,
++            REWARD:       document.getElementById('chkReward')   ?.checked ?? true,
++            FAILED:       document.getElementById('chkFailed')   ?.checked ?? false,
++        };
++    } else {
++        show = {
++            REIMAGE:   document.getElementById('chkReimage')  ?.checked ?? true,
++            BLOCK:     document.getElementById('chkBlock')    ?.checked ?? true,
++            ALLOW:     document.getElementById('chkAllow')    ?.checked ?? true,
++            STOP_SVC:  document.getElementById('chkStopSvc')  ?.checked ?? true,
++            START_SVC: document.getElementById('chkStartSvc') ?.checked ?? true,
++            FAILED:    document.getElementById('chkDefFailed')?.checked ?? false,
++        };
+     }
+-    
+-
+-    function openAgentConfig(evt, agentName) {
+-        var i, tabcontent, tablinks;
+-        tabcontent = document.getElementsByClassName("tabcontent");
+-
+-        for (i = 0; i < tabcontent.length; i++) {
+-            tabcontent[i].style.display = "none";
+-        }
+-
+-        tablinks = document.getElementsByClassName("tablinks");
+-        for (i = 0; i < tablinks.length; i++) {
+-            tablinks[i].className = tablinks[i].className.replace(" active", "");
+-        }
+ 
+-        document.getElementById(agentName).style.display = "block";
+-        evt.currentTarget.className += " active";
++    var entries = defenderView ? defenderLogData : attackerLogData;
++    var html = '';
++    var shown = 0;
++    entries.forEach(function(e) {
++        if (!show[e.kind]) return;
++        var rval = parseFloat(e.reward);
++        var rewardHtml = rval !== 0
++            ? '<span class="log-reward">' + (rval > 0 ? '+' : '') + rval + '</span>'
++            : '';
++        html += '<div class="log-entry">'
++              + '<span class="log-step">Step ' + e.step + '</span>'
++              + '<span class="log-kind ' + e.kind + '">' + e.kind + '</span>'
++              + '<span class="log-detail">' + e.detail + '</span>'
++              + rewardHtml
++              + '</div>';
++        shown++;
++    });
++    if (shown === 0) html = '<span style="color:#484f58;">No entries match the current filter.</span>';
++    list.innerHTML = html;
++    list.scrollTop = list.scrollHeight;
++
++    // Badge + count
++    var badge = document.getElementById('logBadge');
++    var count = document.getElementById('logCount');
++    if (badge) {
++        badge.textContent  = defenderView ? 'DEFENDER' : 'ATTACKER';
++        badge.className    = 'log-view-badge ' + (defenderView ? 'def' : 'atk');
+     }
+-    
+-    function yesnoCheck(agent) {
+-        if(agent == 'attacker'){
+-            document.getElementById('ifYesAttacker').style.visibility = 'visible';
+-        }
+-        else if(agent == 'defender'){
+-            document.getElementById('ifYesDefender').style.visibility = 'visible';
+-        }
+-        else if(agent == 'noAttacker'){
+-            document.getElementById('ifYesAttacker').style.visibility = 'hidden';
+-        }
+-        else if(agent == 'noDefender'){
+-            document.getElementById('ifYesDefender').style.visibility = 'hidden';
+-        }
+-    }
+-
+-  </script>
++    if (count) count.textContent = '(' + shown + ' / ' + entries.length + ' entries)';
+ 
+-</html>
+\ No newline at end of file
++    // Filter-Panels tauschen
++    var atkF = document.getElementById('atkFilters');
++    var defF = document.getElementById('defFilters');
++    if (atkF) atkF.style.display = defenderView ? 'none' : 'flex';
++    if (defF) defF.style.display = defenderView ? 'flex' : 'none';
++}
++
++filterLog();
++</script>
++</html>
+diff -ruN a/train_defenders.py b/train_defenders.py
+--- a/train_defenders.py	1970-01-01 01:00:00.000000000 +0100
++++ b/train_defenders.py	2026-08-31 11:34:08.341565448 +0200
+@@ -0,0 +1,110 @@
++"""
++Defender Training — alle Test-Topologien
++=========================================
++Nutzt einen einzigen eingefrorenen Super-Attacker als Gegner
++und trainiert für jede Test-Topologie einen frischen Defender (BA).
++
++Verwendung:
++    python train_defenders.py --attacker models/super_attacker_final_XYZ.zip
++
++    # Einzelne Topologie:
++    python train_defenders.py --attacker models/super_attacker_final_XYZ.zip --only flat
++"""
++
++import argparse
++import os
++import sys
++
++MARLON_PATH  = os.path.dirname(os.path.abspath(__file__))
++PROJECT_ROOT = os.path.dirname(MARLON_PATH)
++sys.path.insert(0, PROJECT_ROOT)
++sys.path.insert(0, MARLON_PATH)
++
++from thesis_topology.envs import register_all
++register_all()
++
++from marlon.simulate import train
++
++TEST_TOPOLOGIES = {
++    "flat":         "CyberBattleFlat-thesis-v0",
++    "hub_and_spoke":"CyberBattleHubSpoke-thesis-v0",
++    "dmz":          "CyberBattleDMZ-thesis-v0",
++    "micro_seg":    "CyberBattleMicroSeg-thesis-v0",
++}
++
++DEFAULT_STEPS         = 200_000
++DEFAULT_EPISODE_STEPS = 2_000
++SAVE_DIR = os.path.join(MARLON_PATH, "models")
++
++
++def run_defender_training(
++    attacker_path: str,
++    topology_subset: list[str] | None = None,
++    steps: int = DEFAULT_STEPS,
++    episode_steps: int = DEFAULT_EPISODE_STEPS,
++    save_dir: str = SAVE_DIR,
++) -> dict[str, str]:
++    """
++    Trainiert einen Defender pro Test-Topologie.
++    Der Attacker ist eingefroren (kein weiteres Training).
++
++    Returns
++    -------
++    Dict {topology_name: defender_model_path}
++    """
++    topos = {k: v for k, v in TEST_TOPOLOGIES.items()
++             if topology_subset is None or k in topology_subset}
++
++    print(f"\n{'='*60}")
++    print(f"  Defender Training ({len(topos)} Topologien)")
++    print(f"  Attacker (frozen): {os.path.basename(attacker_path)}")
++    print(f"  Steps/Topo       : {steps:,}")
++    print(f"{'='*60}\n")
++
++    results = {}
++    for name, env_id in topos.items():
++        print(f"  [{name}] {env_id}")
++
++        result = train(
++            env_id=env_id,
++            attacker_algo="PPO",
++            defender_algo="PPO",
++            total_timesteps=steps,
++            episode_steps=episode_steps,
++            save_dir=save_dir,
++            attacker_file=attacker_path,
++            defender_file=None,          # BA startet frisch
++            attacker_frozen=True,        # RA eingefroren → kontrollierte Baseline
++            defender_frozen=False,
++        )
++        results[name] = result["defender"]
++        print(f"    → {os.path.basename(result['defender'])}\n")
++
++    print(f"{'='*60}")
++    print("  Alle Defender gespeichert:")
++    for name, path in results.items():
++        print(f"    {name:12s}  {os.path.basename(path)}")
++    print(f"{'='*60}\n")
++
++    return results
++
++
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser(description="Defender Training auf allen Test-Topologien")
++    parser.add_argument("--attacker",      required=True,
++                        help="Pfad zum Super-Attacker .zip (eingefroren)")
++    parser.add_argument("--steps",         type=int, default=DEFAULT_STEPS,
++                        help=f"Timesteps pro Topologie (default: {DEFAULT_STEPS})")
++    parser.add_argument("--episode-steps", type=int, default=DEFAULT_EPISODE_STEPS,
++                        help=f"Max Schritte pro Episode (default: {DEFAULT_EPISODE_STEPS})")
++    parser.add_argument("--only",          type=str, default=None,
++                        help="Nur eine Topologie, z.B. 'flat' oder 'dmz'")
++    args = parser.parse_args()
++
++    subset = [args.only] if args.only else None
++    run_defender_training(
++        attacker_path=args.attacker,
++        topology_subset=subset,
++        steps=args.steps,
++        episode_steps=args.episode_steps,
++    )
+diff -ruN a/train_super_attacker.py b/train_super_attacker.py
+--- a/train_super_attacker.py	1970-01-01 01:00:00.000000000 +0100
++++ b/train_super_attacker.py	2026-08-31 11:34:08.341644311 +0200
+@@ -0,0 +1,147 @@
++"""
++Sequenzielles Super-Attacker Training
++======================================
++Trainiert EINEN Attacker-Agenten nacheinander auf mehreren Topologien.
++Jede Stufe lädt das Modell der vorherigen Stufe → Transfer Learning.
++Ergebnis: ein einziges "Super-Modell", das alle Topologien gesehen hat.
++
++Verwendung:
++    python train_super_attacker.py
++
++    # Oder mit eigenen Parametern:
++    python train_super_attacker.py --steps 50000 --episode-steps 2000
++
++Thesis-Workflow:
++    Phase 1 – Super-Attacker Pretraining (dieser Script)
++        Chain → Flat → HubSpoke → DMZ → MicroSeg
++        Ergebnis: models/super_attacker_final.zip
++
++    Phase 2 – Defender Training (pro Topologie, via Web-UI oder defend_runs.py)
++        Super-Attacker EINFRIEREN, BA frisch trainieren
++        → 4 Defender-Modelle (eines pro Test-Topologie)
++"""
++
++import argparse
++import os
++import sys
++from datetime import datetime
++
++# Skript liegt in MARLon/ → Projekt-Root ist eine Ebene höher
++MARLON_PATH  = os.path.dirname(os.path.abspath(__file__))
++PROJECT_ROOT = os.path.dirname(MARLON_PATH)
++sys.path.insert(0, PROJECT_ROOT)
++sys.path.insert(0, MARLON_PATH)
++
++from thesis_topology.envs import register_all
++register_all()
++
++from marlon.simulate import train
++
++# ── Konfiguration ─────────────────────────────────────────────────────────────
++
++# Reihenfolge der Topologien für das sequenzielle Pretraining.
++# Chain zuerst (neutrale Pretraining-Topologie), dann die 4 Test-Topologien.
++TOPOLOGY_SEQUENCE = [
++    "CyberBattleChain-thesis-v0",
++    "CyberBattleFlat-thesis-v0",
++    "CyberBattleHubSpoke-thesis-v0",
++    "CyberBattleDMZ-thesis-v0",
++    "CyberBattleMicroSeg-thesis-v0",
++]
++
++DEFAULT_STEPS_PER_TOPO = 50_000   # Timesteps pro Topologie-Stufe
++DEFAULT_EPISODE_STEPS  = 2_000    # Max Schritte pro Episode
++SAVE_DIR = os.path.join(MARLON_PATH, "models")  # MARLon/models/
++
++
++def run_sequential_training(
++    topology_sequence: list[str],
++    steps_per_topology: int,
++    episode_steps: int,
++    start_from: str | None = None,
++    save_dir: str = SAVE_DIR,
++) -> str:
++    """
++    Trainiert den Attacker sequenziell über alle Topologien.
++
++    Parameters
++    ----------
++    topology_sequence : Liste der env_ids in Trainingsreihenfolge.
++    steps_per_topology : Timesteps pro Topologie-Stufe.
++    episode_steps : Max Schritte pro Episode.
++    start_from : Pfad zu einem vortrainierten Modell (optional).
++                 None = komplett neu starten.
++    save_dir : Verzeichnis für Zwischen- und Endmodelle.
++
++    Returns
++    -------
++    Pfad zum finalen Super-Modell (.zip).
++    """
++    os.makedirs(save_dir, exist_ok=True)
++    attacker_path = start_from  # None = frischer Start
++
++    print(f"\n{'='*60}")
++    print(f"  Super-Attacker Sequential Training")
++    print(f"  Topologien : {len(topology_sequence)}")
++    print(f"  Steps/Topo : {steps_per_topology:,}")
++    print(f"  Start      : {start_from or 'neu'}")
++    print(f"{'='*60}\n")
++
++    for i, env_id in enumerate(topology_sequence, start=1):
++        print(f"[{i}/{len(topology_sequence)}] Trainiere auf {env_id}")
++        if attacker_path:
++            print(f"           Lade Checkpoint: {os.path.basename(attacker_path)}")
++
++        result = train(
++            env_id=env_id,
++            attacker_algo="PPO",
++            defender_algo="None",        # Kein Defender im Pretraining
++            total_timesteps=steps_per_topology,
++            episode_steps=episode_steps,
++            save_dir=save_dir,
++            attacker_file=attacker_path, # None beim ersten Durchlauf
++            defender_file=None,
++            attacker_frozen=False,       # Weitertrainieren!
++            defender_frozen=False,
++        )
++
++        attacker_path = result["attacker"]
++        print(f"           Gespeichert: {os.path.basename(attacker_path)}\n")
++
++    # Finale Version umbenennen für klare Identifikation
++    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
++    final_path = os.path.join(save_dir, f"super_attacker_final_{timestamp}.zip")
++    os.replace(attacker_path, final_path)
++
++    print(f"{'='*60}")
++    print(f"  FERTIG — Super-Modell:")
++    print(f"  {final_path}")
++    print(f"{'='*60}\n")
++    print("Nächster Schritt — Defender Training:")
++    print("  Web-UI: Super-Modell als 'Attacker einfrieren' laden,")
++    print("          dann BA auf jeder Test-Topologie trainieren.")
++    print("  Oder: python train_defenders.py --attacker", final_path)
++
++    return final_path
++
++
++if __name__ == "__main__":
++    parser = argparse.ArgumentParser(description="Sequenzielles Super-Attacker Training")
++    parser.add_argument("--steps",         type=int, default=DEFAULT_STEPS_PER_TOPO,
++                        help=f"Timesteps pro Topologie (default: {DEFAULT_STEPS_PER_TOPO})")
++    parser.add_argument("--episode-steps", type=int, default=DEFAULT_EPISODE_STEPS,
++                        help=f"Max Schritte pro Episode (default: {DEFAULT_EPISODE_STEPS})")
++    parser.add_argument("--start-from",    type=str, default=None,
++                        help="Pfad zu vortrainiertem Modell (default: neu starten)")
++    parser.add_argument("--only",          type=str, default=None,
++                        help="Nur eine Topologie trainieren (env_id), z.B. Chain als erster Schritt")
++    args = parser.parse_args()
++
++    topos = [args.only] if args.only else TOPOLOGY_SEQUENCE
++
++    run_sequential_training(
++        topology_sequence=topos,
++        steps_per_topology=args.steps,
++        episode_steps=args.episode_steps,
++        start_from=args.start_from,
++    )
+diff -ruN a/web.py b/web.py
+--- a/web.py	2026-08-31 11:34:08.321880375 +0200
++++ b/web.py	2026-08-31 11:34:08.341711892 +0200
+@@ -1,48 +1,192 @@
+-from flask import Flask, render_template, request
+-from marlon.simulate import SimulationCache, simulate
+-import plotly, json
++from flask import Flask, render_template, request, send_file
++from marlon.simulate import SimulationCache, simulate, train
++import plotly, json, os
+ 
+ app = Flask(__name__)
+-ITERATION_COUNT = 1500
++DEFAULT_STEPS = 2000
+ SIMULATION = SimulationCache()
++ATTACKER_LOG: list = []
++DEFENDER_LOG: list = []
++
++TOPOLOGY_OPTIONS = {
++    "CyberBattleToyCtf-v0":                   "ToyCTF (original)",
++    "CyberBattleFlat-thesis-v0":               "Flat – keine Segmentierung",
++    "CyberBattleHubSpoke-thesis-v0":           "Hub-and-Spoke – DC als zentraler Chokepoint",
++    "CyberBattleDMZ-thesis-v0":                "DMZ – zonenbasierte Segmentierung",
++    "CyberBattleMicroSeg-thesis-v0":           "Micro-segmented – Zero-Trust / minimale Pfade",
++    "CyberBattleDefenseInDepth-thesis-v0":     "Defense-in-Depth (Attacker-Pretraining, verworfen)",
++    "CyberBattleChain-thesis-v0":               "Chain (Attacker-Pretraining)",
++}
++
++
++def _empty_stats():
++    return {}
++
++
++CROWN_JEWEL_NODE = "DatabaseServer"
++
++def _compute_stats(simulation, timesteps, env_id, attacker_log=None):
++    if not simulation:
++        return {}
++    last = simulation[-1]
++    steps_taken  = last[2]
++    att_score    = last[3]
++    def_score    = last[4]
++    events       = len(simulation) - 1
++    early_stop   = steps_taken < timesteps
++    # Crown Jewel: prüfe ob DatabaseServer tatsächlich im Attacker-Log als owned auftaucht.
++    # Score-Threshold war falsch – DC+WS1-3+Creds kann >180 ergeben ohne DB zu ownen.
++    goal_reached = False
++    if attacker_log:
++        goal_reached = any(
++            entry.get("kind") == "LATERAL_MOVE" and
++            CROWN_JEWEL_NODE in entry.get("owned", [])
++            for entry in attacker_log
++        )
++    return {
++        "steps_taken":  steps_taken,
++        "max_steps":    timesteps,
++        "att_score":    round(float(att_score), 1),
++        "def_score":    round(float(def_score), 1),
++        "events":       events,
++        "early_stop":   early_stop,
++        "goal_reached": goal_reached,
++    }
++
+ 
+ @app.route('/')
+ def home():
+-    if SIMULATION.value is None:
+-        return render_template('index.html', num_graphs=0, graphs=[], attacker_name = "-", defender_name = "-")
+-    return render_template('index.html', num_graphs=len(SIMULATION.value), graphs=[], attacker_name = "-", defender_name = "-")
++    return render_template('index.html',
++        num_graphs=0, graphs=[], attacker_log=[], defender_log=[],
++        attacker_name="-", defender_name="-",
++        topology_name="-", topology_options=TOPOLOGY_OPTIONS,
++        stats=_empty_stats(), train_result=None, sim_error=None,
++    )
++
+ 
+ @app.route('/upload-file', methods=['POST'])
+ def upload_file():
+-    #Get Agent Configurations
++    global ATTACKER_LOG, DEFENDER_LOG
+     attacker_option = request.form['attackerOptions']
+     defender_option = request.form['defenderOptions']
++    env_id    = request.form.get('topologyOption', 'CyberBattleToyCtf-v0')
++    timesteps = int(request.form.get('timesteps', DEFAULT_STEPS))
+ 
+     attacker_file = None
+     if 'attackerFile' in request.files:
+-        attacker_file = request.files['attackerFile'].filename
++        f = request.files['attackerFile']
++        if f.filename:
++            attacker_file = f.filename
++            f.save(attacker_file)
+     defender_file = None
+     if 'defenderFile' in request.files:
+-        defender_file = request.files['defenderFile'].filename
++        f = request.files['defenderFile']
++        if f.filename:
++            defender_file = f.filename
++            f.save(defender_file)
++
++    try:
++        SIMULATION.value, ATTACKER_LOG, DEFENDER_LOG = simulate(
++            timesteps=timesteps,
++            attacker_option=attacker_option,
++            defender_option=defender_option,
++            attacker_file=attacker_file,
++            defender_file=defender_file,
++            env_id=env_id,
++        )
++    except Exception as exc:
++        import traceback
++        traceback.print_exc()
++        return render_template('index.html',
++            num_graphs=0, graphs=[], attacker_log=[], defender_log=[],
++            attacker_name="-", defender_name="-",
++            topology_name="-", topology_options=TOPOLOGY_OPTIONS,
++            stats=_empty_stats(), train_result=None,
++            sim_error=str(exc),
++        )
++
++    attacker_name = attacker_file if attacker_option == "Load" else attacker_option
++    defender_name = defender_file if defender_option == "Load" else defender_option
++    topology_name = TOPOLOGY_OPTIONS.get(env_id, env_id)
++    stats  = _compute_stats(SIMULATION.value, timesteps, env_id, attacker_log=ATTACKER_LOG)
++    graphs = json.dumps(SIMULATION.value, cls=plotly.utils.PlotlyJSONEncoder)
+ 
+-    SIMULATION.value = simulate(
+-        timesteps=ITERATION_COUNT,
+-        attacker_option=attacker_option,
+-        defender_option=defender_option,
+-        attacker_file=attacker_file,
+-        defender_file=defender_file
++    return render_template('index.html',
++        num_graphs=len(SIMULATION.value), graphs=graphs,
++        attacker_log=ATTACKER_LOG, defender_log=DEFENDER_LOG,
++        attacker_name=attacker_name, defender_name=defender_name,
++        topology_name=topology_name, topology_options=TOPOLOGY_OPTIONS,
++        stats=stats, train_result=None, sim_error=None,
+     )
+ 
+-    attacker_name = attacker_option
+-    if attacker_name == "Load":
+-        attacker_name = attacker_file
+-    
+-    defender_name = defender_option
+-    if defender_name == "Load":
+-        defender_name = defender_file
+ 
+-    graphs = json.dumps(SIMULATION.value, cls=plotly.utils.PlotlyJSONEncoder)
+-    return render_template('index.html', num_graphs=len(SIMULATION.value), graphs=graphs, attacker_name = attacker_name, defender_name = defender_name)
++@app.route('/train', methods=['POST'])
++def train_route():
++    env_id        = request.form.get('topologyOption', 'CyberBattleToyCtf-v0')
++    attacker_algo = request.form.get('attackerAlgo', 'PPO')
++    defender_algo = request.form.get('defenderAlgo', 'None')
++    total_steps   = int(request.form.get('totalSteps', 10000))
++    episode_steps = int(request.form.get('episodeSteps', DEFAULT_STEPS))
++
++    # Optionale vortrainierte Modelle (Finetuning)
++    upload_dir = "models/uploads"
++    os.makedirs(upload_dir, exist_ok=True)
++
++    attacker_pretrained = None
++    f_att = request.files.get('trainAttackerFile')
++    if f_att and f_att.filename:
++        att_path = os.path.join(upload_dir, f_att.filename)
++        f_att.save(att_path)
++        attacker_pretrained = att_path
++
++    defender_pretrained = None
++    f_def = request.files.get('trainDefenderFile')
++    if f_def and f_def.filename:
++        def_path = os.path.join(upload_dir, f_def.filename)
++        f_def.save(def_path)
++        defender_pretrained = def_path
++
++    attacker_frozen = request.form.get('attackerMode') == 'frozen'
++    defender_frozen = request.form.get('defenderMode') == 'frozen'
++
++    try:
++        result = train(
++            env_id=env_id,
++            attacker_algo=attacker_algo,
++            defender_algo=defender_algo,
++            total_timesteps=total_steps,
++            episode_steps=episode_steps,
++            attacker_file=attacker_pretrained,
++            defender_file=defender_pretrained,
++            attacker_frozen=attacker_frozen,
++            defender_frozen=defender_frozen,
++        )
++        train_result = {
++            "success": True,
++            "attacker": result["attacker"],
++            "defender": result["defender"],
++            "csv":      result.get("csv"),
++            "steps":    result["total_timesteps"],
++            "env":      TOPOLOGY_OPTIONS.get(env_id, env_id),
++        }
++    except Exception as e:
++        train_result = {"success": False, "error": str(e)}
++
++    return render_template('index.html',
++        num_graphs=0, graphs=[], attacker_log=[], defender_log=[],
++        attacker_name="-", defender_name="-",
++        topology_name="-", topology_options=TOPOLOGY_OPTIONS,
++        stats=_empty_stats(), train_result=train_result, sim_error=None,
++    )
++
++
++@app.route('/download-csv')
++def download_csv():
++    path = request.args.get('path', '')
++    if not path or not os.path.isfile(path):
++        return "Datei nicht gefunden", 404
++    return send_file(path, as_attachment=True, mimetype='text/csv')
++
+ 
+ if __name__ == "__main__":
+-    app.run(host='localhost', port=5000)
+\ No newline at end of file
++    app.run(host='localhost', port=5000)

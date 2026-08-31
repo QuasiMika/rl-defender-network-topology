@@ -1,0 +1,28 @@
+% AUTOMATISCH ERZEUGT von gen_topologie_figuren.py -- nicht von Hand aendern.
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[topofig, scale=1.15]
+  \node[entrynode] (WebServer) at (-6.6,0.0) {WebServer\\[-1pt]{\tiny 0\,P \textbar\ --}};
+  \node[netnode] (Workstation1) at (1.22,2.96) {WS1\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (Workstation2) at (-1.22,2.96) {WS2\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (Workstation3) at (-2.96,1.22) {WS3\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (MailServer) at (2.96,1.22) {MailServer\\[-1pt]{\tiny 15\,P \textbar\ HTTPS}};
+  \node[netnode] (FileServer) at (-1.22,-2.96) {FileServer\\[-1pt]{\tiny 20\,P \textbar\ SMB}};
+  \node[netnode] (AppServer) at (0.0,0.0) {AppServer\\[-1pt]{\tiny 15\,P \textbar\ HTTP}};
+  \node[netnode] (BackupServer) at (1.22,-2.96) {BackupServer\\[-1pt]{\tiny 25\,P \textbar\ SMB}};
+  \node[dcnode] (DomainController) at (-2.96,-1.22) {DomainCtrl\\[-1pt]{\tiny 30\,P \textbar\ RDP}};
+  \node[cjnode] (DatabaseServer) at (2.96,-1.22) {DatenbankSrv\\[-1pt]{\tiny 100\,P \textbar\ SQL}};
+  \draw[reach] (WebServer) -- (AppServer);
+  \draw[reach] (AppServer) -- (MailServer);
+  \draw[reach] (AppServer) -- (DomainController);
+  \draw[reach] (AppServer) -- (Workstation1);
+  \draw[reach] (AppServer) -- (Workstation2);
+  \draw[reach] (AppServer) -- (Workstation3);
+  \draw[reach] (AppServer) -- (FileServer);
+  \draw[reach] (AppServer) -- (BackupServer);
+  \draw[reach] (AppServer) -- (DatabaseServer);
+  \draw[cred] (WebServer) to[bend right=14] (AppServer);
+  \draw[cred] (AppServer) to[bend right=14] (DatabaseServer);
+  \draw[cred] (AppServer) to[bend right=14] (DomainController);
+  \node[dcbadge, anchor=north] at (-2.96,-1.8399999999999999) {h\"alt alle Zugangsdaten};
+\end{tikzpicture}
+\end{adjustbox}

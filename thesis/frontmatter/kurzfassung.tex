@@ -1,0 +1,53 @@
+% Kurzfassung (Deutsch) und Abstract (Englisch)
+\chapter*{Kurzfassung}
+\addcontentsline{toc}{chapter}{Kurzfassung}
+
+Reinforcement Learning wird zunehmend für autonome Cyberabwehr erprobt;
+welche Rolle die Struktur des verteidigten Netzes dabei spielt, ist jedoch
+wenig untersucht. Diese Arbeit misst den Einfluss der Netzwerktopologie
+auf Verteidigungsagenten, die mit Proximal Policy Optimization in der
+Simulationsumgebung CyberBattleSim trainiert werden, erweitert um einen
+lernenden Verteidiger. Auf vier Topologien mit identischem
+Inventar -- vollvermascht, Hub-and-Spoke, DMZ und mikrosegmentiert --
+treten je sechs eingefrorene Angreifer an: fünf Spezialisten und ein über
+alle Topologien gestuft trainierter Generalist. Die Datengrundlage bilden
+120 Trainingsläufe über fünf Zufallsstartwerte sowie eine Evaluation mit
+9000 Episoden gegen drei Vergleichsstufen. Ein Einfluss der Topologie auf
+die Lerngeschwindigkeit ließ sich nicht nachweisen; auf das erreichte
+Ergebnis ist er hingegen deutlich: Mit zunehmender Segmentierung sinkt der
+Anteil der Episoden, in denen der Angreifer das wertvollste System
+erreicht -- im mikrosegmentierten Netz bis auf null, während er im
+vollvermaschten Netz nahezu ungebremst bleibt, weil Sperren dort
+ausweichbar sind; erst Engpässe machen sie wirksam. Der auf der
+verteidigten Topologie trainierte Angreifer erweist sich durchweg als
+härtester Gegner. Methodisch zeigt die Arbeit, dass der Reward allein
+Verteidigungsleistung nicht abbildet und das übernommene Reward-Design
+Prävention unsichtbar ließ. Für die Praxis stützt das die Empfehlung
+konsequenter Segmentierung: Sie begrenzt, was ein Angreifer erreichen
+kann, und macht aktive Verteidigung erst wirksam.
+
+\chapter*{Abstract}
+\addcontentsline{toc}{chapter}{Abstract}
+
+Reinforcement learning is increasingly explored for autonomous cyber
+defense, yet the role played by the structure of the defended network has
+received little attention. This thesis measures the influence of network
+topology on defender agents trained with Proximal Policy Optimization in
+the CyberBattleSim environment, extended with a learning defender. Four topologies with identical inventory -- fully meshed,
+hub-and-spoke, DMZ, and micro-segmented -- are each defended against six
+frozen attackers: five specialists and one generalist trained in stages
+across all topologies. The data comprise 120 training runs over five
+random seeds and an evaluation of 9{,}000 episodes against three baseline
+tiers. No influence of topology on learning speed could be demonstrated;
+its influence on the achieved outcome, however, is pronounced: With
+increasing segmentation, the share of episodes in which the attacker
+reaches the most valuable system declines -- down to zero in the
+micro-segmented network, while in the fully meshed network the attacker
+remains largely unchecked because blocks can simply be evaded; only choke
+points make them effective. The attacker trained on the defended topology
+consistently proves to be the hardest opponent. Methodologically, the
+thesis shows that reward alone does not capture defensive performance and
+that the inherited reward design left prevention invisible. For practice,
+this supports a recommendation of rigorous segmentation: it limits what an
+attacker can reach and is what makes active defense effective in the
+first place.

@@ -1,0 +1,1050 @@
+\chapter{Ergebnisse und Interpretation}
+\label{ch:ergebnisse}
+
+% Die Ergebnisse werden hier unmittelbar eingeordnet, statt die Deutung in ein
+% eigenes Diskussionskapitel auszulagern. Der Leser hat die zugehoerigen
+% Tabellen und Abbildungen damit an derselben Stelle vor sich.
+
+Grundlage dieses Kapitels ist der finale Lauf: 120 Trainingsläufe über 24
+Matchups und fünf Seeds, gefolgt von 9000 Evaluationsepisoden über 360 Läufe.
+In allen folgenden Tabellen steht die Zeile für die \emph{verteidigte}
+Topologie und die Spalte für den Angreifer, also für die Topologie, auf der
+dieser trainiert wurde.
+
+Zahlen werden in diesem Kapitel nach drei festen Vorschriften gebildet, die
+hier einmal benannt seien, statt sie bei jeder Größe zu wiederholen.
+
+\emph{Verlaufswerte} beschreiben die Form der Lernkurven in den Abbildungen:
+je Episode das Mittel über die fünf Seeds, darüber ein zentriertes gleitendes
+Mittel über fünf Episoden. Über die Seeds wird bewusst gemittelt und nicht
+der Median genommen: Ein Einbruch, der nur einzelne Läufe betrifft, soll in
+der Kurve sichtbar bleiben, und gerade solche Einbrüche werden in
+\Cref{sec:lernkurven} besprochen. Die Glättung dient allein der Lesbarkeit.
+
+\emph{Niveauwerte} beziffern, wo ein Training beginnt und wo es endet: je
+Seed der Median seiner ersten beziehungsweise letzten zehn Episoden, darüber
+das Mittel der fünf Seeds; sie heißen im Folgenden \emph{Startniveau} und
+\emph{Endniveau}. Der Median je Seed wirkt vor allem am Trainingsende: Dort kann eine
+einzelne Episode mit \ac{SLA}-Brüchen um Größenordnungen unter dem typischen
+Wert liegen und würde ein Mittel allein bestimmen; am Anfang, wo alle zehn
+Episoden gleichermaßen extrem ausfallen, gibt er schlicht die Mitte des
+Fensters wieder. Das anschließende Mittel hält alle fünf Seeds im Ergebnis, sodass ein abweichender Lauf den
+Zellwert sichtbar verschiebt. Alle Anfangs- und Endwerte in Text und
+Tabellen sind solche Niveauwerte und keine abgelesenen Kurvenpunkte. Der
+Grund liegt am Rand der Kurven: Das zentrierte Glättungsfenster ragt dort
+über die vorhandenen Episoden hinaus, bei Episode~1 stehen von fünf
+Episoden nur drei, und der abgelesene Wert hinge damit mehr an der
+gewählten Fensterbreite als an den Daten. Wo der Text einen Wert aus dem
+Inneren einer Kurve zitiert, ist er als Wert der Mittelkurve gekennzeichnet.
+
+\emph{Quoten} wie die Crown-Jewel-Quote beruhen je Episode und Seed auf
+einem einzelnen Ja oder Nein. Fünf Seeds erlauben je Episode damit nur sechs
+mögliche Quoten in Stufen von zwanzig Prozentpunkten; ein Verlauf ist so
+nicht ablesbar. Quoten werden deshalb gemeinsam über ein Fenster
+von elf Episoden und alle fünf Seeds gebildet, also aus 55 Beobachtungen je
+Punkt. In der Evaluation entfällt das Fenster: Die Policy ist dort fertig trainiert, es gibt keinen Verlauf mehr, und eine Quote fasst schlicht alle
+125 Episoden einer Zelle zusammen.
+
+\section{Lernkurven je Topologie}
+\label{sec:lernkurven}
+
+Die erste Frage an einen Trainingslauf ist, ob überhaupt etwas gelernt wurde.
+Sie lässt sich am Verlauf des Episoden-Rewards ablesen, aber nicht an dem des
+Verteidigers allein.
+
+Dessen Kurve steigt nämlich in allen 120 Läufen, und kein einziger
+verschlechtert sich. Das ist weniger ein Befund als eine Folge des Aufbaus.
+Ein untrainierter Verteidiger sperrt wahllos, unterschreitet damit die
+Verfügbarkeitsschwelle und kassiert die Strafe von $-50$ über hunderte
+Schritte einer Episode (\Cref{sec:sla}). Die Startwerte fallen dadurch extrem
+aus und sagen kaum etwas über den Angreifer; beispielsweise liegt das
+Startniveau von \emph{flat} gegen den eigenen Angreifer bei $-8381$ (\Cref{tab:reward-ende}). Dass der Agent diese Strafe binnen weniger Episoden abstellt,
+ist die erste und drastischste Korrektur; eine Verbesserung ist von
+diesem Startniveau aus fast unvermeidlich.
+
+An der zweiten Kurve entscheidet sich deshalb die eigentliche Frage: Gelingt es dem
+Verteidiger, den Reward des Angreifers zu senken, ihn also tatsächlich am
+Vordringen zu hindern? Nur diese Größe entsteht allein aus dem Geschehen im
+Netz und ist von Abwehrbonus und \ac{SLA}-Strafe unberührt
+(\Cref{sec:rewards}).
+
+Auch darauf lautet die Antwort ja, allerdings in sehr unterschiedlichem
+Ausmaß. \Cref{tab:reward-atk-verlauf} stellt Anfang und Ende für alle 24
+Matchups gegenüber.
+
+\begin{table}[H]
+  \centering
+  \caption[Angreifer-Reward als Start- und Endniveau]{Angreifer-Reward als
+  Start- und Endniveau. Hervorgehoben sind die Zellen, in denen Verteidiger
+  und Angreifer auf derselben Topologie entstanden sind.}
+  \label{tab:reward-atk-verlauf}
+  \footnotesize
+  \begin{tabular}{l*{6}{r}}
+    \toprule
+    Verteidigt & Chain & Flat & H\,\&\,S & DMZ & Micro & Super \\
+    \midrule
+    Flat        & 296\,$\to$\,160 & \diag{1349\,$\to$\,664} & 325\,$\to$\,164 & 257\,$\to$\,147 & 300\,$\to$\,166 & 581\,$\to$\,188 \\
+    Hub \& Spoke& 230\,$\to$\,110 & 271\,$\to$\,62 & \diag{758\,$\to$\,75} & 139\,$\to$\,80 & 253\,$\to$\,108 & 275\,$\to$\,64 \\
+    DMZ         & 208\,$\to$\,80 & 161\,$\to$\,66 & 225\,$\to$\,86 & \diag{901\,$\to$\,150} & 137\,$\to$\,64 & 164\,$\to$\,79 \\
+    Micro-Seg.  & 177\,$\to$\,77 & 244\,$\to$\,75 & 194\,$\to$\,49 & 68\,$\to$\,52 & \diag{655\,$\to$\,20} & 495\,$\to$\,77 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Die hervorgehobenen Zellen sind diejenigen, in denen die verteidigte Topologie
+und die Trainingstopologie des Angreifers übereinstimmen. Da die Spalten in
+derselben Reihenfolge stehen wie die Zeilen, bilden sie in der Tabelle eine
+Diagonale; dieser Begriff wird im Folgenden für sie verwendet.
+
+Die seedweise Bildung der Niveauwerte ist dabei keine Förmlichkeit. Da das Budget in
+Zeitschritten und nicht in Episoden vergeben ist, umfassen die Läufe
+unterschiedlich viele Episoden. Deutlich tritt das in drei Matchups auf: 251
+bis 253 in \emph{flat} gegen \emph{flat}, 252 bis 259 in \emph{hub\_and\_spoke} gegen \emph{hub\_and\_spoke}
+und 261 bis 311 in \emph{dmz} gegen \emph{dmz}. Würde man erst über die Seeds mitteln und
+dann die letzten Episoden nehmen, so beruhte das Ende einer solchen Zelle
+auf immer weniger Läufen. Alle drei betroffenen Matchups liegen auf der
+Diagonalen; eine ungenauere Bildung hätte also gerade die Zellen verzerrt,
+an denen die Befunde dieses Kapitels hängen.
+
+Schon die Startwerte zeigen, dass die Herkunft eines Angreifers zählt. Gegen
+einen noch untrainierten Verteidiger erreicht in jeder der vier Zeilen
+derjenige Angreifer den höchsten Reward, der auf ebendieser Topologie
+trainiert wurde. Der Abstand zum Zweitbesten reicht dabei vom Faktor 1,3 in
+\emph{micro\_segmented} bis zum Faktor 4,0 in \emph{dmz}, wo der Spezialist 901 Punkte
+erzielt und der nächstbeste Angreifer 225. Zweitbester ist in \emph{flat} und
+\emph{micro\_segmented} jeweils der Super-Angreifer, also der einzige, der ebenfalls
+auf dieser Topologie trainiert hat, wenn auch nicht ausschließlich.
+
+Außerhalb der Diagonalen behält der Angreifer am Ende zwischen 16 und
+76~Prozent seines anfänglichen Rewards, im Mittel 42~Prozent. Auf der
+Diagonalen bricht er dagegen auf 3 bis 17~Prozent ein. Der Angreifer, der die
+verteidigte Struktur kennt, startet also von einem weit höheren Niveau und
+wird dennoch am gründlichsten zurückgedrängt.
+
+Eine Zelle folgt diesem Muster nicht. \emph{flat} gegen \emph{flat} startet mit 1349 ebenfalls
+hoch, endet aber bei 664 und behält
+damit knapp die Hälfte, also ähnlich viel wie ein gewöhnliches Matchup. Dieser Fall wird das gesamte Kapitel begleiten.
+
+Für jede verteidigte Topologie zeigt eine eigene Abbildung den Verlauf
+beider Agenten gegen alle sechs Angreifer. Jedes der sechs Teilbilder
+trägt dabei eine eigene Skala, denn die Anfangswerte der einzelnen Matchups liegen um mehr
+als eine Größenordnung auseinander.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{lernkurven_flat}
+  \caption[Lernkurven auf \emph{flat}]{Verteidiger auf \emph{flat} gegen alle
+  sechs Angreifer, gemittelt über fünf Seeds und geglättet über das gleitende
+  Mittel von fünf Episoden.}
+  \label{fig:lk-flat}
+\end{figure}
+
+Die Zeile \emph{flat} in \Cref{tab:reward-atk-verlauf} zeigt den Angreifer in fünf
+der sechs Spalten auf einem höheren Endniveau als in jeder anderen
+verteidigten Topologie; einzig der DMZ-Angreifer endet auf seiner
+Heimattopologie mit 150 knapp über den 147. In \Cref{fig:lk-flat} kommt
+entsprechend keine der sechs Verteidigerkurven der Nulllinie nennenswert
+nahe. Am deutlichsten ist das im Teilbild des eigenen Angreifers, oben in der
+Mitte; \Cref{tab:reward-ende} beziffert es: Startniveau $-8381$, Endniveau
+$-710$, während dieselbe Topologie gegen alle übrigen Angreifer zwischen
+$-168$ und $-197$ endet.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{lernkurven_hub_and_spoke}
+  \caption[Lernkurven auf \emph{hub\_and\_spoke}]{Verteidiger auf
+  \emph{hub\_and\_spoke} gegen alle sechs Angreifer.}
+  \label{fig:lk-hs}
+\end{figure}
+
+In \emph{hub\_and\_spoke} (\Cref{fig:lk-hs}) fällt das Teilbild des eigenen
+Angreifers durch etwas anderes auf. Dort steigt die Mittelkurve des Angreifers
+zunächst bis auf über $+3300$ in Episode~25, also weit über das Niveau aller
+übrigen Teilbilder, und fällt dann über das Training fast vollständig wieder ab. Der Verteidiger beginnt im Startniveau bei
+$-7910$ und endet bei $-78$ (\Cref{tab:reward-ende}). Der Anfang ist dabei kein
+Spiegelbild: Der Verteidiger verliert ein Vielfaches dessen, was der Angreifer
+gewinnt, weil zur Kopplung noch die \ac{SLA}-Strafe hinzukommt. Erst am Ende
+stehen die beiden Werte einander spiegelbildlich gegenüber, und genau das
+zeigt an, dass keine Brüche mehr anfallen. Der auf dieser Topologie trainierte
+Angreifer beginnt also mit Abstand am stärksten und verliert im Verlauf
+90~Prozent seines Rewards. Am Ende ist er von den übrigen fünf Angreifern
+dieser Zeile nicht mehr zu unterscheiden, die zwischen 62 und 110 liegen
+(\Cref{tab:reward-atk-verlauf}).
+
+In dieser Abbildung fallen zudem die tiefen Einbrüche auf, etwa gegen
+Episode~150 im selben Teilbild und gegen Episode~240 gegen den
+Micro-Segmentation-Angreifer. Beide gehen auf einzelne Seeds zurück und haben
+einen unterschiedlichen Umfang. Der erste ist eine Phase: In zwei der fünf
+Läufe häufen sich zwischen Episode~110 und 165 die \ac{SLA}-Brüche, in einem
+über 21 und im anderen über 16 Episoden. Der zweite ist eine einzige Episode,
+in der die Verfügbarkeit über \num{1668} der rund 2000 Schritte unter der
+Schwelle lag.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{sla_einbrueche}
+  \caption[Reward und \acs{SLA}-Brüche je Seed]{Verteidiger-Reward und Schritte
+  mit \ac{SLA}-Bruch für die beiden auffälligen Matchups, je Seed einzeln
+  aufgetragen und nicht gemittelt. Der Reward ist über fünf Episoden geglättet,
+  die Bruchschritte sind es nicht.}
+  \label{fig:sla-einbrueche}
+\end{figure}
+
+\Cref{fig:sla-einbrueche} stellt beides nebeneinander. Die Ausschläge der
+Reward-Kurve und die Spitzen der Bruchschritte liegen an denselben Episoden,
+und sie beschränken sich auf wenige Läufe: links auf zwei, von denen einer
+deutlich stärker ausschlägt, rechts auf einen einzigen. Kurze Brüche
+treten auch in den übrigen Seeds vereinzelt auf; Episoden mit mehreren hundert
+Bruchschritten bleiben jedoch auf diese wenigen Läufe beschränkt. Im gesamten
+Training gibt es nur zwölf Episoden mit mehr als 500 Bruchschritten, und acht
+davon liegen in den ersten beiden Episoden ihres Laufs.
+
+Eine Erklärung liefert der Vergleich innerhalb des Laufs mit der schwersten
+Episode, also des einen betroffenen Seeds gegen den
+Micro-Segmentation-Angreifer; als ruhig gelten dabei seine bruchfreien
+Episoden ab Episode~51, nach der Anfangsphase.
+In der Episode mit \num{1668} Bruchschritten bleibt die Zahl
+der Reimages mit 117 gegenüber 112 im Median praktisch unverändert. Die Zahl
+der Sperren steigt dagegen von 7 auf 36, und keine einzige von ihnen wird
+wieder aufgehoben, gegenüber im Median 61 Freigaben in einer ruhigen Episode. Nicht das
+Neuaufsetzen bricht also die Verfügbarkeit, sondern Sperren, die über den
+größten Teil der Episode Bestand haben; eine gesetzte Sperre wirkt bis zu
+ihrer Aufhebung fort. Eine erreichte
+Policy ist demnach nicht dauerhaft stabil, und das Konvergenzkriterium aus
+\Cref{sec:konvergenz} erfasst solche späten Rückfälle nicht.
+
+Woher der Umschwung in der Policy rührt, lässt sich aus den erhobenen Daten
+nicht eindeutig bestimmen. Zweierlei ist dazu festzuhalten. Erstens ist es kein
+allgemeines Verhalten des Verfahrens, sondern eines einzelner Läufe: Von fünf
+Seeds sind jeweils einer oder zwei betroffen, die übrigen zeigen keine solchen
+Ausschläge in der Zahl der Bruchschritte.
+Genau diese Streuung zwischen sonst gleichen Läufen beschreiben Henderson
+et~al.\ als eigenständige Schwierigkeit von Policy-Gradient-Verfahren; sie
+zeigen, dass allein die Wahl des Zufallsstartwerts zu deutlich verschiedenen
+Ergebnisverteilungen führen kann und ein Mittel über wenige Läufe deshalb
+keine belastbaren Schlüsse
+erlaubt~\cite{henderson2019deepreinforcementlearningmatters}. Für die vorliegende Arbeit begrenzt das lediglich die Deutung: Die
+Einbrüche in den Mittelkurven sind keine Aussage über die Topologie,
+sondern die sichtbare Spur einzelner Seeds.
+
+Zweitens ist der naheliegende Verdacht, eine einzelne Ausreißerepisode habe
+die Policy unmittelbar verschoben, mit dem Verfahren nicht vereinbar. Genau
+das verhindert die Begrenzung aus \Cref{eq:ppo-clip}: Sie deckelt, wie weit
+sich die Policy je Aktualisierung von der bisherigen entfernen darf,
+unabhängig davon, wie groß der Vorteil ausfällt.
+
+Diese Grenze gilt allerdings nur für die Policy selbst. Der Critic darf
+seine Prognose nach einer solchen Episode beliebig stark anpassen, und da
+sich beide in der eingesetzten Umsetzung die vorderen Schichten des Netzes
+teilen, wirkt seine Korrektur mittelbar auch auf den Actor -- an dessen
+eigener Begrenzung vorbei. Derselbe Mechanismus trägt die rasche Rückkehr:
+Sobald die Episoden wieder normal ausfallen, fallen die Schätzungen des
+Critic deutlich negativer aus als das tatsächliche Geschehen. Jede
+gewöhnliche Episode erscheint dadurch besser als erwartet, das zuletzt
+gezeigte Verhalten wird verstärkt, und die Policy findet auf das alte
+Niveau zurück. Was den Ausschlag überhaupt auslöst, erklären diese Überlegungen
+nicht.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{lernkurven_dmz}
+  \caption[Lernkurven auf \emph{dmz}]{Verteidiger auf \emph{dmz} gegen alle
+  sechs Angreifer.}
+  \label{fig:lk-dmz}
+\end{figure}
+
+\emph{dmz} (\Cref{fig:lk-dmz}) zeigt dasselbe Muster, aber deutlich langsamer.
+Die Mittelkurve des Angreifers steigt zunächst noch, bis auf 4257 in
+Episode~22, und geht erst danach zurück: auf 2277 in Episode~75, 946 in
+Episode~100 und 282 in Episode~110; von dort an ändert sich wenig mehr. Die
+Mittelkurve des Verteidigers verbessert sich über denselben Zeitraum stetig
+und liegt in Episode~50 bereits bei $-1030$. Da der Angreifer
+eingefroren ist, lernt er selbst nichts dazu; eine gerichtete Veränderung
+seiner Kurve geht deshalb auf den Verteidiger zurück, während kurzfristige
+Schwankungen der Streuung zwischen den Läufen zuzuschreiben sind.
+Erst nach rund 25 Episoden beginnt dieser, ihn tatsächlich zu
+bremsen, und dafür braucht er dann etwa 80 weitere. In demselben
+Zeitraum bricht auch die Crown-Jewel-Quote dieses Matchups ein
+(\Cref{fig:cj-verlauf-dmz}); beide Größen bewegen sich also gemeinsam.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{cj_verlauf_dmz}
+  \caption[Reward und Crown-Jewel-Quote in \emph{dmz}]{Angreifer-Reward und
+  Crown-Jewel-Quote im Matchup \emph{dmz} gegen \emph{dmz}.}
+  \label{fig:cj-verlauf-dmz}
+\end{figure}
+
+Bis Episode~55 fällt das Crown Jewel in jeder einzelnen Episode. Danach
+sinkt die Quote parallel zum Reward, auf 85~Prozent in Episode~100 und auf
+ihren Tiefstwert von 26~Prozent in Episode~145. Der Rückgang des Rewards
+ist also kein bloßer Punktverlust, sondern bedeutet, dass der Verteidiger
+den Angreifer in einem wachsenden Teil der Episoden vom wertvollsten
+System fernhält.
+
+Danach pendelt die Quote zwischen 26 und 62~Prozent, ohne weiter zu
+fallen; die noch höheren Werte am rechten Rand beruhen bereits auf weniger
+als fünf Läufen. Das ist jedoch keine gemeinsame Bewegung aller Läufe,
+sondern deren Streuung: Über die Episoden~150 bis 250 erreichen die fünf
+Seeds Quoten von 26, 31, 37, 59 und 70~Prozent, jeder für sich weitgehend
+stabil. Die gemittelte Kurve bildet damit eine Mischung aus fünf
+verschiedenen, aber jeweils gefestigten Policies ab, nicht einen
+Rückfall. Die Evaluation bestätigt das Niveau später mit 36~Prozent
+(\Cref{tab:cj-eval}).
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{lernkurven_micro_segmented}
+  \caption[Lernkurven auf \emph{micro\_segmented}]{Verteidiger auf
+  \emph{micro\_segmented} gegen alle sechs Angreifer.}
+  \label{fig:lk-ms}
+\end{figure}
+
+In \emph{micro\_segmented} (\Cref{fig:lk-ms}) verlaufen beide Kurven im Teilbild
+des eigenen Angreifers über das gesamte Training aufeinander zu und enden bei den Niveaus $+20$
+und $-20$. Anders als in \emph{dmz} beginnt der Rückgang
+sofort: Die Mittelkurve fällt auf 363 in Episode~25 und 193 in Episode~50,
+danach langsamer weiter. Von den vier Matchups auf der Diagonalen ist dies das einzige, in dem der
+Angreifer am Ende praktisch nichts mehr erwirtschaftet. Innerhalb der
+Abbildung ähnelt dem Teilbild des eigenen Angreifers einzig das des
+Super-Angreifers: Dessen Mittelkurve liegt in Episode~25 mit
+208 noch weit über den vier übrigen Teilbildern, die dort 58 bis 127 zeigen,
+und die Verteidigerkurve beginnt gegen ihn tiefer und holt langsamer auf --
+in Episode~25 steht sie bei $-494$, in den vier übrigen Teilbildern zwischen
+$-72$ und $-228$. Das fügt sich in das Bild, denn der Super-Angreifer ist
+der einzige weitere, der diese Topologie im Training gesehen hat, als letzte Station seines gestuften Trainings;
+\Cref{sec:angreiferherkunft} nimmt das wieder auf.
+Die Anfangswerte fallen zugleich am mildesten aus: Das tiefste Startniveau
+liegt hier bei $-3711$ gegenüber $-8381$ in \emph{flat}
+(\Cref{tab:reward-ende}). Das passt zu den nur 145 erreichbaren Punkten dieser Topologie.
+
+Über alle vier Abbildungen hinweg zeigt sich damit dasselbe Muster: Das Teilbild
+des eigenen Angreifers ist stets dasjenige mit dem tiefsten Startwert und dem
+längsten Weg. Ein Verteidiger tut sich gegen den Gegner am schwersten, der
+seine eigene Struktur kennt. \Cref{sec:angreiferherkunft} geht dem nach.
+
+\Cref{tab:reward-ende} stellt Start- und Endniveau des Verteidigers
+gegenüber. Am Start trägt die Diagonale in jeder Zeile mit Abstand den
+tiefsten Wert; bemerkenswert ist, dass ihre Werte am Ende nicht mehr
+herausstechen:
+In \emph{micro\_segmented} ist sie sogar der beste Wert der Zeile, in
+\emph{hub\_and\_spoke} liegt sie im Mittelfeld. Der anfängliche Rückstand gegen den
+passgenauen Angreifer ist bis zum Trainingsende also aufgeholt. Die Ausnahme
+ist erneut \emph{flat} gegen \emph{flat} mit $-710$, dem mit Abstand schlechtesten Wert der
+Tabelle; alle übrigen 23 Zellen liegen zwischen $-20$ und $-224$. Der
+zweitschlechteste Wert, $-224$ gegen den Hub-and-Spoke-Angreifer in \emph{dmz}, wird
+dabei von einem einzelnen Seed bei $-839$ getragen; die übrigen vier Läufe
+dieser Zelle enden zwischen $-58$ und $-86$.
+
+\begin{table}[H]
+  \centering
+  \caption[Verteidiger-Reward als Start- und Endniveau]{Start- und Endniveau
+  des Verteidiger-Rewards. Werte näher an null sind besser.}
+  \label{tab:reward-ende}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{adjustbox}{max width=\textwidth}
+  \begin{tabular}{l*{6}{r}}
+    \toprule
+    Verteidigt & Chain & Flat & H\,\&\,S & DMZ & Micro & Super \\
+    \midrule
+    Flat        & $-1118\to-182$ & \diag{$-8381\to-710$} & $-1694\to-193$ & $-1209\to-168$ & $-1318\to-188$ & $-2349\to-197$ \\
+    Hub \& Spoke& $-983\to-109$ & $-951\to-64$ & \diag{$-7910\to-78$} & $-789\to-81$ & $-946\to-117$ & $-1600\to-72$ \\
+    DMZ         & $-1159\to-77$ & $-977\to-67$ & $-1193\to-224$ & \diag{$-7265\to-157$} & $-978\to-62$ & $-866\to-76$ \\
+    Micro-Seg.  & $-735\to-76$ & $-1156\to-74$ & $-904\to-49$ & $-434\to-53$ & \diag{$-3711\to-20$} & $-2799\to-83$ \\
+    \bottomrule
+  \end{tabular}
+  \end{adjustbox}
+\end{table}
+
+Diese Zahlen sind allerdings nur innerhalb einer Zeile vergleichbar, nicht
+zwischen den Zeilen. Der Verteidiger-Reward ist über die Grundkopplung an den
+des Angreifers gebunden, und der erreichbare Punktevorrat unterscheidet sich
+je Topologie: In \emph{micro\_segmented} sind vom Einstiegsknoten aus nur 145
+der 235 Punkte überhaupt erreichbar (\Cref{sec:topomodell}). Ein Teil des
+besseren Rewards geht dort also allein darauf zurück, dass weniger zu holen
+war; welcher Anteil das ist, lässt sich der Zahl nicht entnehmen. Die Aussagen zur
+Wirksamkeit stützen sich deshalb in \Cref{sec:wirksamkeitergebnis} auf
+Größen, die von der Reward-Skala unabhängig sind.
+
+\section{Crown-Jewel-Quote im Trainingsverlauf}
+\label{sec:cj-verlauf}
+
+Die Reward-Kurven laufen in allen 24 Matchups früh auf ein Niveau zu, auf dem
+sie anschließend verharren. Daraus ließe sich schließen, dass auch die
+Verteidigung ab diesem Punkt nicht mehr besser wird. Die Crown-Jewel-Quote
+widerspricht dem. Sie ist zugleich die Größe, an der die Fragestellung
+unmittelbar hängt, denn sie sagt, ob der Angreifer das wertvollste System
+erreicht.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{cj_verlauf_diagonale}
+  \caption[Crown-Jewel-Quote im Trainingsverlauf]{Anteil der Episoden mit
+  erreichtem Crown Jewel für die vier Matchups auf der Diagonalen. Die Quote
+  ist über ein Fenster von elf Episoden und alle fünf Seeds gebildet, also über
+  55~Episoden je Punkt.}
+  \label{fig:cj-diagonale}
+\end{figure}
+
+\Cref{fig:cj-diagonale} trennt die vier Topologien deutlicher als jede andere
+Größe dieses Kapitels. Zu Beginn erreicht der Angreifer das Ziel überall in
+jeder Episode. Danach gehen die Verläufe auseinander:
+
+\begin{itemize}
+  \item In \emph{flat} verhindert der Verteidiger über das gesamte Training
+    keinen einzigen Zugriff auf das Crown Jewel, von einer einzigen Episode
+    abgesehen.
+  \item In \emph{micro\_segmented} fällt sie stetig und liegt kurz nach
+    Episode~230 bei null; über die letzten zwanzig Episoden aller fünf
+    Seeds erreicht der Angreifer das Ziel in keiner einzigen.
+  \item \emph{hub\_and\_spoke} und \emph{dmz} liegen dazwischen und kommen auf
+    28 beziehungsweise 42~Prozent in den letzten zwanzig Episoden.
+\end{itemize}
+
+Bemerkenswert ist der Zeitpunkt. In \emph{micro\_segmented} sinkt die Quote
+zwischen Episode~150 und 230 von 38 auf 5~Prozent, während der Reward in
+diesem Abschnitt nur noch von etwa $-100$ auf $-20$ steigt. Am Reward gemessen
+geschieht dort fast nichts mehr, an der Crown-Jewel-Quote gemessen das
+Entscheidende. 
+Der Grund liegt in der Reward-Konstruktion: Ein Zugriff, der
+verhindert wird, schlägt sich nur mit dem Wert des Zielknotens von
+100~Punkten nieder, weil dem Angreifer nichts genommen, sondern nur nichts
+gegeben wird (\Cref{sec:marlon-original}).
+
+In \emph{dmz} erreicht der Angreifer das Crown Jewel auch nach dem
+Einpendeln regelmäßig, ohne dass sich das im Reward niederschlägt
+(\Cref{fig:cj-verlauf-dmz}, bei den Lernkurven). Der Grund liegt in der
+Kopplung aus Verlust und Rückeroberung (\Cref{sec:rewards}). Über die
+Episoden~150 bis 250 verliert der Angreifer in den Episoden mit
+erreichtem Crown Jewel im Median 2035~Punkte durch neu aufgesetzte Knoten,
+gegenüber 1552 in den übrigen. Er nimmt das Ziel also,
+verliert es wieder und nimmt es erneut, und jede dieser Runden gleicht sich
+aus. Am Ende trennt die Episoden mit erreichtem Crown
+Jewel von denen ohne ein Unterschied von 175 zu 126~Punkten -- weniger als
+die 100~Punkte, die das gehaltene Crown Jewel allein wert wäre.
+
+Beide Größen messen demnach Verschiedenes: Die Crown-Jewel-Quote sagt, ob der
+Angreifer das Ziel überhaupt erreicht, der Reward, ob er es halten kann.
+Sie bewegen sich dennoch in dieselbe Richtung. Ordnet man die fünf Seeds nach ihrer Quote, so
+steigt der Reward-Median mit ihr, von 123 bei 26~Prozent bis 188 bei
+70~Prozent. Erst aus beiden zusammen ergibt sich ein Bild, wie in
+\Cref{sec:metriken} angelegt.
+
+\section{Gehaltene Knoten im Trainingsverlauf}
+\label{sec:knoten-verlauf}
+
+Ob das Crown Jewel gefallen ist, beantwortet noch nicht, wie weit der Angreifer
+insgesamt vorgedrungen ist. Ein Netz, in dem er acht Knoten hält, und eines, in
+dem er auf dem Einstiegsknoten festsitzt, stehen in dieser Quote gleich, sofern
+das Ziel in beiden Fällen unangetastet blieb. Dafür dient die dritte Zielgröße
+aus \Cref{sec:metriken}, die größte Zahl gleichzeitig kompromittierter Knoten
+je Episode. Der Einstiegsknoten zählt dabei mit: Ein Wert von 1,0 bedeutet, dass
+der Angreifer über ihn nicht hinausgekommen ist.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{knoten_verlauf_diagonale}
+  \caption[Gehaltene Knoten im Trainingsverlauf]{Größte Zahl gleichzeitig
+  gehaltener Knoten je Episode für die vier Matchups auf der Diagonalen,
+  gemittelt über fünf Seeds und geglättet über fünf Episoden. Von zehn Knoten
+  im Netz.}
+  \label{fig:knoten-diagonale}
+\end{figure}
+
+In \emph{dmz} und \emph{hub\_and\_spoke} steigt die Mittelkurve zunächst noch
+an und erreicht 9,6 beziehungsweise 9,4. Der Angreifer hält dort in den meisten
+Episoden das gesamte Netz. Erst danach setzt der Rückgang ein.
+\emph{micro\_segmented} beginnt dagegen bei 4,0 und hält damit ebenfalls
+alles, was von dort aus überhaupt erreichbar ist (\Cref{sec:topomodell}).
+
+Die Abbildung zeigt nur die Diagonale, alle 24 Matchups zeigt
+\Cref{app:knoten}. Zieht man sie alle heran, so
+liegen 21 von ihnen am Ende des Trainings zwischen 1,8 und 2,5. Der
+Verteidiger drückt den Angreifer also im Regelfall auf ein bis zwei eroberte
+Rechner zurück. Drei Zellen weichen davon ab, und zwei davon sind in der
+Abbildung zu sehen: \emph{dmz} gegen \emph{dmz} mit 3,4 und \emph{flat}
+gegen \emph{flat} mit 7,5, dazu \emph{flat} gegen den Super-Angreifer mit
+3,0.
+
+Auffällig ist davon nur \emph{flat} gegen \emph{flat}: Auch dort hält der
+Angreifer anfangs fast das gesamte Netz, doch anders als in \emph{dmz} und
+\emph{hub\_and\_spoke} setzt der Rückgang nie ein -- die Kurve bleibt über
+das gesamte Training nahe ihrem Höchstwert, der Angreifer behält dauerhaft
+rund drei Viertel des Netzes.
+
+\section{Konvergenz}
+\label{sec:konvergenzergebnis}
+
+Das in \Cref{sec:konvergenz} beschriebene Kriterium wird von allen 120 Läufen
+erfüllt, im Median in Episode~42. Der früheste überhaupt mögliche Wert ist
+Episode~39, der früheste gemessene Episode~40. Die Mediane je verteidigter Topologie
+liegen zwischen 41 und 42,5 und unterscheiden sich damit nicht sonderlich
+voneinander.
+Sämtliche Läufe gelten also nahezu unmittelbar an der unteren Grenze des
+Kriteriums als konvergiert, obwohl sie bis zur Episode~250 laufen.
+
+Dieser Befund ist kein Ergebnis über Topologien, sondern eines über das
+Kriterium. Es misst die Restunruhe der letzten Episoden im Verhältnis zur
+bisherigen Reward-Spanne des Laufs. Genau diese Spanne wird durch die ersten Episoden sehr groß, die je nach
+Lauf im fünfstelligen Bereich liegen, und jede spätere
+Verbesserung wirkt daran gemessen klein. Ein Lauf gilt deshalb bereits als
+ruhig, während er sich tatsächlich noch verbessert.
+
+\emph{dmz} gegen \emph{dmz} zeigt das exemplarisch: Die Spanne wird von der ersten
+Episode bestimmt, die je nach Seed zwischen rund $-15\,000$ und
+$-31\,000$ liegt; fünf Prozent davon sind 750 bis 1550 Punkte. Zu dem Zeitpunkt, an dem das Kriterium zutrifft, im Median in
+Episode~49, steht die Mittelkurve erst
+bei rund $-1000$; bis zum Trainingsende verbessert sich der Reward weiter,
+auf Endniveaus zwischen $-133$ und $-196$ je Seed. Diese Verbesserung
+verteilt sich über zweihundert Episoden und bleibt damit je
+Fenster unter der Schwelle. Das Kriterium trennt das Ende der Unruhe nicht vom Ende
+der Verbesserung.
+
+Eine Spur des in \Cref{sec:lernkurven} beschriebenen Musters bleibt dennoch
+erkennbar. In drei der vier Zeilen trägt die Diagonale den höchsten Wert, in
+\emph{micro\_segmented} teilt sie ihn mit der Zelle gegen den
+Super-Angreifer: \emph{dmz} gegen \emph{dmz} konvergiert im Median erst in
+Episode~49, \emph{hub\_and\_spoke} gegen sich selbst in 47, \emph{micro\_segmented} in 46 und
+\emph{flat} in 44, gegenüber 40
+bis 46 in allen übrigen Zellen (\Cref{tab:konvergenz-vergleich}, jeweils
+der Wert vor dem Schrägstrich). Die Richtung stimmt
+also mit den übrigen Größen überein, die Spreizung ist aber so gering, dass
+sich darauf keine Aussage stützen lässt.
+
+Dass die Topologien sich nicht trennen, könnte an der Wahl der Schwelle liegen.
+Das Kriterium besteht aus zwei voneinander unabhängigen Bedingungen, die
+Verschiedenes messen: Die Streuung erfasst das Rauschen der Kurve, der Trend
+erfasst, ob die Verbesserung aufgehört hat. Beide erhalten in
+\Cref{sec:konvergenz} denselben Wert von 0,05 der Spanne, was eine Konvention
+ist und keine Notwendigkeit.
+
+Nachgerechnet zeigt sich, dass davon nur eine der beiden Bedingungen wirksam
+ist. Die Streuung ist in fast allen 120 Läufen von dem Moment an erfüllt, ab
+dem das Kriterium überhaupt geprüft wird; scheitert eine Prüfung vor der
+Konvergenz, dann in aller Regel am Trend. Was den Zeitpunkt bestimmt, ist also
+allein der Trendtest, und dessen Toleranz von 5~Prozent der Gesamtspanne ist weit
+gefasst.
+
+Als Gegenprobe wurde die Schwelle des Trends deshalb auf 0,01 gesenkt, die der
+Streuung blieb bei 0,05. Am Kriterium selbst ändert das nichts, nur an einer
+seiner beiden Zahlen.
+
+\begin{table}[H]
+  \centering
+  \caption[Konvergenzepisoden je Matchup]{Konvergenzepisode je Matchup als
+  Median der fünf einzeln geprüften Seeds; vor dem Schrägstrich beim
+  Trendtest mit Schwelle 0,05, dahinter mit 0,01. Hervorgehoben ist die
+  Diagonale.}
+  \label{tab:konvergenz-vergleich}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{tabular}{l*{6}{r}}
+    \toprule
+    Verteidigt & Chain & Flat & H\,\&\,S & DMZ & Micro & Super \\
+    \midrule
+    Flat        & 41\,/\,58 & \diag{44\,/\,72} & 43\,/\,55 & 41\,/\,59 & 43\,/\,58 & 42\,/\,76 \\
+    Hub \& Spoke& 41\,/\,50 & 41\,/\,55 & \diag{47\,/\,88} & 40\,/\,51 & 41\,/\,50 & 44\,/\,53 \\
+    DMZ         & 41\,/\,49 & 42\,/\,53 & 41\,/\,59 & \diag{49\,/\,95} & 41\,/\,59 & 42\,/\,68 \\
+    Micro-Seg.  & 40\,/\,57 & 42\,/\,49 & 41\,/\,50 & 40\,/\,52 & \diag{46\,/\,66} & 46\,/\,60 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Auch mit dem strengeren Trendtest erfüllen alle 120 Läufe das Kriterium; der
+Median wandert von Episode~42 auf 58,5. Die Topologien trennen sich weiterhin
+nicht: Ihre Mediane liegen zwischen 53 und 62, die Quartile der 30 Läufe je
+Topologie reichen von 55 bis 77 in \emph{flat} und von 50 bis 62 in
+\emph{micro\_segmented} und überlappen damit fast vollständig.
+
+Sichtbar wird dagegen etwas anderes. Betrachtet man nicht die Zeilen
+gegeneinander, sondern die Zellen innerhalb einer Zeile, so tritt die
+Diagonale hervor (\Cref{tab:konvergenz-vergleich}, Werte nach dem
+Schrägstrich). Ihre Mediane liegen zwischen Episode~66 und 95, die der übrigen
+20~Zellen zwischen 49 und 76. In drei der vier Zeilen ist die Diagonale die Zelle mit der spätesten
+Konvergenz, in \emph{flat} die zweitspäteste hinter der Zelle gegen den
+Super-Angreifer. Beim Kriterium aus \Cref{sec:konvergenz} war dieser
+Unterschied kaum erkennbar. Der Befund fügt sich damit in die übrigen Größen
+ein, die in \Cref{sec:angreiferherkunft} zusammengeführt werden.
+
+Angegeben ist hier der Median der fünf Seeds einer Zelle, nicht ihr Mittel.
+Einzelne Läufe konvergieren sehr viel später als die übrigen vier ihrer Zelle,
+etwa \emph{flat} gegen den Hub-and-Spoke-Angreifer mit 48, 49, 55, 63 und 164.
+Das Mittel dieser Zelle läge bei 76 und damit über der Diagonalen, obwohl vier
+ihrer fünf Läufe zu den schnellsten der Zeile gehören.
+
+Für die Frage nach der Topologie bleibt es beim Ergebnis: Bei fünf Seeds je
+Zelle ist ein Einfluss auf die Lerngeschwindigkeit nicht nachweisbar.
+Ausgeschlossen ist er damit nicht, die Daten tragen den Nachweis nur nicht.
+
+Als Maß der Lerneffizienz ist der Konvergenzzeitpunkt in dieser Form deshalb
+nur eingeschränkt geeignet. Dass die Läufe ihr volles Schrittbudget erhielten
+und nicht beim Erfüllen des Kriteriums abgebrochen wurden
+(\Cref{sec:konvergenz}), erweist sich hier als nützlich: Beide Varianten ließen
+sich nachträglich auf vollständige Kurven anwenden, und der Vergleich in
+\Cref{tab:konvergenz-vergleich} wurde dadurch überhaupt erst möglich. Wäre wie
+im Referenzlauf abgebrochen worden, stünde am Ende eine einzelne Zahl, deren
+Zustandekommen sich nicht mehr prüfen ließe.
+
+Der Vergleich der Topologien stützt sich in dieser Arbeit deshalb auf das
+erreichte Niveau (\Cref{sec:lernkurven} bis \Cref{sec:knoten-verlauf}) und auf
+die Wirksamkeit der fertig trainierten Policy
+(\Cref{sec:wirksamkeitergebnis}). \Cref{sec:limitationen} schlägt ein Maß vor,
+das ohne die Normierung auf die Gesamtspanne auskommt.
+
+\section{Aktionsverhalten des Verteidigers}
+\label{sec:aktionen}
+
+Über alle 120 Läufe gemittelt sinkt der Anteil der Sperren von 16~Prozent in
+den ersten 25 Episoden auf 2~Prozent ab Episode~101. Der Verteidiger gibt das
+Sperren also überwiegend auf, jedoch nicht vollständig: In
+87,8~Prozent aller Episoden ist zu jedem Zeitpunkt
+mindestens ein Knoten aktiv abgeschirmt. Zurück geht die Häufigkeit, mit der
+Sperren umgesetzt werden, nicht ihr Bestand.
+
+Zugleich steigt der Anteil ungültiger Aktionen von 38 auf 62~Prozent. Eine
+ungültige Aktion kostet nichts und überspringt den Zug
+(\Cref{sec:marlon-original}); sie ist damit der billigste Weg, nichts zu tun.
+Der Aktionsraum des Verteidigers enthält keine ausdrückliche Aktion dafür.
+Dasselbe gilt für Freigaben auf Knoten, die ohnehin nicht gesperrt sind: Sie
+sind folgenlos. Freigaben machen über alle Läufe hinweg 36,8~Prozent aller Aktionen aus
+und stehen damit nach den ungültigen Aktionen an zweiter Stelle.
+Beide Anteile sind deshalb nicht als Verhalten zu lesen,
+sondern zum größten Teil als Untätigkeit; einzelne Freigaben mögen berechtigt sein, aus den erhobenen Zählungen
+lässt sich das jedoch nicht trennen.
+Aussagekräftig bleiben Sperren und Reimages sowie ihr Verhältnis zueinander.
+
+\Cref{fig:aktionen-verlauf} zeigt beide Aktionsarten im Verlauf. Die Bewegung
+geht in allen vier Topologien in dieselbe Richtung, aber unterschiedlich weit.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{aktionen_verlauf}
+  \caption[Reimages und Sperren im Trainingsverlauf]{Reimages und Sperren je
+  Episode, gemittelt über die sechs Angreifer und fünf Seeds einer Topologie und
+  geglättet über fünf Episoden. Die Kurven enden beim kürzesten der 30 Läufe,
+  weil sich die Zusammensetzung des Mittels danach ändern würde.}
+  \label{fig:aktionen-verlauf}
+\end{figure}
+
+Die Sperren gehen überall zurück, von mehreren hundert je Episode zu Beginn
+auf 11 bis 45 am Ende. Der Rückgang ist aber ungleich: \emph{hub\_and\_spoke} und
+\emph{micro\_segmented} landen bei 11 beziehungsweise 12, \emph{dmz} bei 37
+und \emph{flat} bei 45. Umgekehrt steigen die
+Reimages von 33 bis 51 auf 72 bis 75, mit \emph{dmz} als Ausnahme, dessen Zahl mit
+36 bei etwa der Hälfte der übrigen liegt.
+
+Der Verteidiger verlagert also sein Gewicht vom Sperren auf das Neuaufsetzen,
+und zwar unabhängig von der Topologie. Bemerkenswert ist, dass ausgerechnet
+\emph{flat} am Ende am häufigsten sperrt. Die naheliegende Deutung, der
+Verteidiger gebe dort das Sperren auf, trifft also nicht zu.
+
+Wie gut diese Sperren gesetzt sind, zeigt der Abwehrbonus
+(\Cref{fig:abwehrbonus-verlauf}). Er ist so gebaut, dass eine Sperre gegen eine
+bestehende Bedrohung positiv zählt und eine Sperre ohne Bedrohung negativ
+(Gleichung~\ref{eq:abwehrbonus}); sein Vorzeichen zeigt damit an, ob die Sperren eines Laufs überwiegend
+gegen eine bestehende Bedrohung standen.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{abwehrbonus_verlauf}
+  \caption[Abwehrbonus im Trainingsverlauf]{Abwehrbonus je Episode, gebildet
+  wie in \Cref{fig:aktionen-verlauf}. Positive Werte bedeuten, dass die
+  gesetzten Sperren überwiegend gegen eine bestehende Bedrohung standen.}
+  \label{fig:abwehrbonus-verlauf}
+\end{figure}
+
+Alle vier Topologien beginnen deutlich im Negativen, weil ein untrainierter
+Verteidiger wahllos sperrt. Der anschließende Anstieg gegen null ist für sich
+genommen aber noch kein Zeichen besseren Sperrens, denn der Bonus folgt
+zunächst schlicht dem Sperrvolumen aus \Cref{fig:aktionen-verlauf}: Wo kaum
+noch gesperrt wird, fällt auch kaum noch Bonus an. \emph{hub\_and\_spoke}
+und \emph{micro\_segmented} erreichen die Nähe der Null mit Endniveaus von $-3{,}6$
+und $-0{,}3$ auf genau diesem Weg. Sie legen das Sperren fast vollständig ab,
+und die wenigen verbliebenen Sperren stehen unverändert überwiegend
+nicht gegen eine bestehende Bedrohung.
+
+Anders \emph{dmz}, dessen Endniveau mit $+0{,}6$ als einziges im Positiven
+liegt. Dort pendelt sich das Sperrvolumen bei rund 30 bis 40 Sperren je
+Episode ein, und diese treffen zunehmend: Ab Episode~150 fällt in gut der
+Hälfte der Episoden ein positiver Bonus an, gegen drei der sechs Angreifer
+ist die Bilanz im Mittel sogar positiv (\Cref{app:abwehr}). Es ist zugleich die Topologie, in
+der sich das Sperren auszahlt: Vergleicht man je Matchup die stärker mit
+den schwächer gesperrten Episoden nach Episode~150, so steht der
+Verteidiger in den stärker gesperrten im Median 13~Punkte besser da und der Angreifer 11~Punkte schlechter. Die Zonenübergänge dieser
+Topologie sind Engpässe; einer Sperre dort kann der Angreifer nicht
+ausweichen. Das erklärt zugleich die Ausnahmerolle beim Neuaufsetzen aus
+\Cref{fig:aktionen-verlauf}: Wer den Angreifer an den Engpässen abfängt,
+hat weniger neu aufzusetzen.
+
+\emph{flat} bleibt im Endniveau bei $-14{,}2$ stehen. Mit dem Ausreißer aus
+\Cref{tab:reward-ende} hat das allerdings nichts zu tun: Ausgerechnet gegen
+den eigenen Angreifer sperrt der Verteidiger ab Episode~150 im Median gar
+nicht mehr, sein Bonus liegt bei null (\Cref{app:abwehr}). Der Ausreißer ist schlicht die
+Grundkopplung: Der eigene Angreifer erwirtschaftet am Ende 664 Punkte
+(\Cref{tab:reward-atk-verlauf}), und der Verteidiger spiegelt sie. Die Belastung stammt aus den übrigen
+fünf Matchups, in denen der Verteidiger das Sperren nicht ablegt, obwohl es
+sich dort nach \Cref{eq:abwehrbonus} kaum lohnen kann: Jeder Knoten in
+\emph{flat} hat neun Vorgänger, und weil der Angreifer in diesen Matchups
+auf zwei bis drei Knoten zurückgedrängt ist, sind fast alle davon
+unkompromittiert -- eine stehende Sperre zählt damit beinahe mit dem vollen
+negativen Beitrag, und genau das zeigt der anhaltend negative Bonus. Anders als in \emph{dmz} zahlt sich das nicht aus: In den stärker
+gesperrten Episoden steht der Verteidiger im Median 16~Punkte schlechter,
+während der Angreifer kaum gebremst wird -- die Zahl seiner gehaltenen
+Knoten ändert sich nicht, denn im vollvermaschten Netz weicht er einer
+Sperre schlicht auf einen anderen Knoten aus. Der Hebel des
+Ratenverhältnisses aus \Cref{sec:abwehrbonus} greift hier nicht, denn er
+setzt voraus, dass die Sperre einen Knoten schützt, den der Angreifer
+andernfalls hielte. Warum die Policy das Verhalten dennoch beibehält, lässt
+sich aus den Daten nicht bestimmen; der negative Abwehrbonus von rund 18~Punkten je Episode ist
+klein gegen die Streuung des Episoden-Rewards, und entsprechend schwach ist
+das Signal, das er dagegen setzt. Beide Vergleiche sind zudem Beobachtungen innerhalb der gelernten
+Policies, keine kontrollierten Eingriffe.
+
+\section{Wirksamkeit der trainierten Verteidiger}
+\label{sec:wirksamkeitergebnis}
+
+In der Evaluation (\Cref{sec:evaluation}) gibt es keinen Verlauf mehr: Je Zelle wird
+erst der Median über die 25 Episoden eines Seeds gebildet, dann der Median
+über die fünf Seeds; Quoten fassen alle 125 Episoden einer Zelle zusammen.
+Die Stufe ohne Verteidiger liefert den Bezugspunkt für den Restanteil, der
+zufällige Verteidiger trennt den Beitrag des Trainings vom zufälligen Handeln.
+
+Der Restanteil liegt für das trainierte
+Modell zwischen 0,4 und 12,1~Prozent und damit in \emph{jeder} der 24 Zellen
+unter dem des Zufallsverteidigers, der zwischen 5 und 37~Prozent erreicht
+(\Cref{tab:restanteil}). Das Training bewirkt also
+durchgängig mehr als zufälliges Handeln, und der Abstand ist deutlich: Im
+Referenzlauf hatte der zufällige Verteidiger noch nahezu gleichauf mit dem
+trainierten Modell gelegen (\Cref{sec:marlon-fehler}); nach dem Umbau
+trennt beide in jeder Zelle ein klarer Abstand, am größten in
+\emph{micro\_segmented}: Dort liegt der Restanteil des trainierten
+Modells im Mittel 16,4~Prozentpunkte unter dem des
+Zufallsverteidigers. Einschränkungen
+dieser Schlussfolgerung behandelt \Cref{sec:limitationen}.
+
+\begin{table}[H]
+  \centering
+  \caption[Restanteil in der Evaluation]{Restanteil des Angreifer-Rewards
+  gegen den trainierten Verteidiger, in
+  Prozent des ungeschützten Netzes; dieses selbst liegt definitionsgemäß bei
+  100. In Klammern der Wert des Zufallsverteidigers. Niedriger ist besser.}
+  \label{tab:restanteil}
+  \small
+  \begin{tabular}{l*{6}{r}}
+    \toprule
+    Verteidigt & Chain & Flat & H\,\&\,S & DMZ & Micro & Super \\
+    \midrule
+    Flat         & 8,8 (14) & 12,1 (19) & 9,0 (16) & 7,6 (12) & 8,7 (15) & 3,0 (9)  \\
+    Hub \& Spoke & 5,5 (11) & 6,4 (15)  & 0,5 (10) & 3,9 (6)  & 9,8 (19) & 0,4 (5)  \\
+    DMZ          & 4,1 (9)  & 3,1 (7)   & 3,8 (10) & 2,4 (10) & 4,7 (9)  & 3,6 (7)  \\
+    Micro-Seg.   & 4,3 (11) & 4,9 (16)  & 3,0 (22) & 10,2 (12)& 1,2 (37) & 3,6 (27) \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Die Crown-Jewel-Quote bestätigt das Bild und schärft es
+(\Cref{tab:cj-eval}). Gegen das trainierte Modell erreicht der Angreifer das Crown Jewel in
+nahezu allen Zellen deutlich seltener als gegen den Zufallsverteidiger. In
+\emph{micro\_segmented} fällt die Quote bei drei von sechs Angreifern auf
+exakt null -- beim eigenen Angreifer, der gegen den Zufallsverteidiger noch
+jede Episode gewann; der Chain- und der Flat-Angreifer kommen in je einer
+einzigen der 125 Episoden einer Zelle durch.
+Das andere Extrem ist erneut \emph{flat} gegen den eigenen Angreifer mit
+99,2~Prozent: Hier erreicht der Angreifer das Crown Jewel praktisch in jeder
+Episode, obwohl ein trainierter Verteidiger im Netz steht.
+
+\begin{table}[H]
+  \centering
+  \caption[Crown-Jewel-Quote in der Evaluation]{Anteil der Episoden mit
+  erreichtem Datenbankserver gegen den trainierten Verteidiger, in Prozent.
+  Die kleine Zeile darunter nennt Zufallsverteidiger und ungeschütztes
+  Netz.}
+  \label{tab:cj-eval}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{adjustbox}{max width=\textwidth}
+  \begin{tabular}{l*{6}{r}}
+    \toprule
+    Verteidigt & Chain & Flat & H\,\&\,S & DMZ & Micro & Super \\
+    \midrule
+    Flat         & 51,2 & 99,2 & 53,6 & 25,6 & 49,6 & 84,0 \\
+    \multicolumn{1}{r}{\scriptsize Zufall\,/\,ohne} & \scriptsize 92\,/\,92 & \scriptsize 100\,/\,100 & \scriptsize 94\,/\,100 & \scriptsize 55\,/\,66 & \scriptsize 90\,/\,95 & \scriptsize 100\,/\,100 \\[2pt]
+    Hub \& Spoke & 8,8 & 4,0 & 27,2 & 2,4 & 20,0 & 2,4 \\
+    \multicolumn{1}{r}{\scriptsize Zufall\,/\,ohne} & \scriptsize 46\,/\,68 & \scriptsize 50\,/\,77 & \scriptsize 100\,/\,100 & \scriptsize 14\,/\,94 & \scriptsize 54\,/\,69 & \scriptsize 57\,/\,90 \\[2pt]
+    DMZ          & 8,0 & 0,8 & 1,6 & 36,0 & 0,8 & 1,6 \\
+    \multicolumn{1}{r}{\scriptsize Zufall\,/\,ohne} & \scriptsize 46\,/\,78 & \scriptsize 43\,/\,98 & \scriptsize 58\,/\,95 & \scriptsize 99\,/\,100 & \scriptsize 31\,/\,98 & \scriptsize 25\,/\,99 \\[2pt]
+    Micro-Seg.   & 0,8 & 0,8 & 0,0 & 0,0 & 0,0 & 15,2 \\
+    \multicolumn{1}{r}{\scriptsize Zufall\,/\,ohne} & \scriptsize 39\,/\,100 & \scriptsize 52\,/\,100 & \scriptsize 6\,/\,56 & \scriptsize 0\,/\,44 & \scriptsize 100\,/\,100 & \scriptsize 100\,/\,100 \\[2pt]
+    \bottomrule
+  \end{tabular}
+  \end{adjustbox}
+\end{table}
+
+Die Zahl der gehaltenen Knoten weist in dieselbe Richtung
+(\Cref{tab:knoten-eval}). Gegen das trainierte Modell hält der Angreifer im
+Median 2 von zehn Knoten, den Einstiegsknoten mitgezählt, also faktisch
+einen einzigen eroberten. Ohne Verteidiger sind es je nach Zelle 3 bis 10,
+gegen den Zufallsagenten 2 bis 8. Ausnahmen beim trainierten Modell sind wiederum \emph{flat} gegen \emph{flat} mit 7
+Knoten sowie \emph{flat} gegen den Super-Angreifer und \emph{dmz} gegen \emph{dmz} mit je 3.
+
+\begin{table}[H]
+  \centering
+  \caption[Gehaltene Knoten in der Evaluation]{Größte Zahl gleichzeitig
+  gehaltener Knoten gegen den trainierten Verteidiger, als Median einer
+  Zelle; die kleine Zeile darunter nennt Zufallsverteidiger und
+  ungeschütztes Netz. Von zehn Knoten, der Einstiegsknoten zählt mit.}
+  \label{tab:knoten-eval}
+  \footnotesize
+  \setlength{\tabcolsep}{4pt}
+  \begin{adjustbox}{max width=\textwidth}
+  \begin{tabular}{l*{6}{r}}
+    \toprule
+    Verteidigt & Chain & Flat & H\,\&\,S & DMZ & Micro & Super \\
+    \midrule
+    Flat         & 2 & 7 & 2 & 2 & 2 & 3 \\
+    \multicolumn{1}{r}{\scriptsize Zufall\,/\,ohne} & \scriptsize 3\,/\,7 & \scriptsize 7\,/\,10 & \scriptsize 3\,/\,7 & \scriptsize 3\,/\,9 & \scriptsize 3\,/\,8 & \scriptsize 4\,/\,10 \\[2pt]
+    Hub \& Spoke & 2 & 2 & 2 & 2 & 2 & 2 \\
+    \multicolumn{1}{r}{\scriptsize Zufall\,/\,ohne} & \scriptsize 3\,/\,8 & \scriptsize 3\,/\,8 & \scriptsize 8\,/\,10 & \scriptsize 3\,/\,9 & \scriptsize 3\,/\,3 & \scriptsize 3\,/\,10 \\[2pt]
+    DMZ          & 2 & 2 & 2 & 3 & 2 & 2 \\
+    \multicolumn{1}{r}{\scriptsize Zufall\,/\,ohne} & \scriptsize 3\,/\,8 & \scriptsize 3\,/\,8 & \scriptsize 3\,/\,8 & \scriptsize 8\,/\,10 & \scriptsize 3\,/\,5 & \scriptsize 3\,/\,9 \\[2pt]
+    Micro-Seg.   & 2 & 2 & 2 & 2 & 2 & 2 \\
+    \multicolumn{1}{r}{\scriptsize Zufall\,/\,ohne} & \scriptsize 3\,/\,4 & \scriptsize 3\,/\,4 & \scriptsize 3\,/\,4 & \scriptsize 2\,/\,3 & \scriptsize 4\,/\,4 & \scriptsize 4\,/\,4 \\[2pt]
+    \bottomrule
+  \end{tabular}
+  \end{adjustbox}
+\end{table}
+
+Beide Größen zusammen zeigen, dass die drei segmentierten Topologien einander
+im Ergebnis ähnlicher sind, als der Reward vermuten ließ, und dass \emph{flat}
+klar abfällt. Bemerkenswert ist dabei, dass Restanteil und Crown-Jewel-Quote
+nicht dieselbe Rangfolge liefern. \emph{hub\_and\_spoke} gegen den eigenen Angreifer hat
+mit 0,5~Prozent einen der niedrigsten Restanteile der Tabelle, zugleich
+aber eine Crown-Jewel-Quote von 27,2~Prozent. Der Restanteil ist ein Verhältnis zum
+ungeschützten Netz; wo dort sehr viel zu holen war, sieht eine Verteidigung relativ
+gut aus, obwohl das Crown Jewel in mehr als jeder vierten Episode fällt. Für
+eine Aussage über das tatsächliche Risiko ist deshalb die absolute Größe
+maßgeblich.
+
+Schließlich die Gegenrechnung. \Cref{tab:kosten} stellt den Aufwand beider
+Verteidiger gegenüber. Der Zufallsagent setzt im Median rund 650 Sperren
+je Episode, also bei etwa jedem dritten der 2000 Schritte, und verletzt
+dadurch in 99,7 bis 100~Prozent der Episoden das \ac{SLA}; sein Reward liegt
+entsprechend um das Vierzig- bis Hundertsechzigfache unter dem des
+trainierten Modells. Dieses sperrt fast nie und bricht das \ac{SLA} nur
+selten. Der Unterschied liegt damit nicht in der Menge der Eingriffe, sondern
+in ihrer Auswahl.
+
+\begin{table}[H]
+  \centering
+  \caption[Aufwand der Verteidigung]{Aufwand des trainierten Verteidigers je
+  Evaluationsepisode, in Klammern der Zufallsverteidiger. Mediane über alle
+  Seeds und Angreifer.}
+  \label{tab:kosten}
+  \small
+  \begin{tabular}{lrrrr}
+    \toprule
+    Verteidigt & Sperren & Reimages & \ac{SLA}-Bruch & Reward \\
+    \midrule
+    Flat         & 10 (650) & 29,0 (21,0)  & 14,9\,\% (100\,\%)  & $-191$ ($-8016$) \\
+    Hub \& Spoke & 1 (650)  & 103,0 (34,0) & 0,8\,\% (100\,\%)   & $-91$ ($-8356$)  \\
+    DMZ          & 19 (654) & 27,0 (16,0)  & 4,5\,\% (99,7\,\%)  & $-78$ ($-6934$)  \\
+    Micro-Seg.   & 0 (648)  & 103,5 (34,0) & 0,1\,\% (100\,\%)   & $-53$ ($-8497$)  \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Auffällig ist die Zeile \emph{micro\_segmented}: null Sperren im Median, dafür 103,5
+Reimages und damit dreimal so viele wie beim Zufallsagenten. Der wirksamste
+Verteidiger dieser Untersuchung sperrt also gar nicht, sondern setzt konsequent
+neu auf. Dasselbe Muster zeigt \emph{hub\_and\_spoke}. \Cref{sec:rewarddiskussion} geht
+der Frage nach, ob das eine Eigenschaft der Topologien ist oder eine des
+Reward-Entwurfs.
+
+\section{Einfluss der Angreiferherkunft}
+\label{sec:angreiferherkunft}
+
+Die Topologie, auf der ein Angreifer trainiert wurde, beeinflusst das Ergebnis
+sichtbar. In drei der vier verteidigten Topologien erreicht derjenige Angreifer
+die höchste Crown-Jewel-Quote, der auf ebendieser Topologie entstanden ist:
+\emph{flat} mit 99,2~Prozent, \emph{hub\_and\_spoke} mit 27,2 und \emph{dmz} mit 36,0. Wie deutlich
+der Abstand zur zweithöchsten Quote derselben Zeile ausfällt, ist
+allerdings sehr verschieden (\Cref{tab:cj-eval}): In \emph{dmz} folgt der Chain-Angreifer erst bei 8,0~Prozent, in
+\emph{hub\_and\_spoke} der Micro-Segmentation-Angreifer bei 20,0, und in \emph{flat} liegt der
+Super-Angreifer bei 84,0.
+
+Der Vorteil ist also kein allgemeiner Fähigkeitsvorsprung, sondern
+Passgenauigkeit: Der Angreifer kennt die Wege dieser Struktur, weil er auf ihr
+gelernt hat. Umgekehrt bricht seine Leistung ein, sobald er auf eine fremde und
+stärker segmentierte Struktur trifft.
+
+Die Ausnahme ist \emph{micro\_segmented} selbst. Dort scheitert der eigene
+Angreifer vollständig (0,0~Prozent), während der Super-Angreifer als einziger
+mit 15,2~Prozent durchkommt. Die Vielfalt seiner
+Trainingsstationen vor der letzten auf \emph{micro\_segmented} verschafft
+ihm hier offenbar einen Vorteil gegenüber dem Spezialisten: Wo eine
+Struktur nur wenige und enge Wege lässt, scheint breites Wissen mehr zu
+helfen als spezialisiertes.
+
+In einzelnen Konstellationen kann breites Wissen für einen Verteidiger
+also gefährlicher sein als der Spezialist. Für drei der vier Topologien
+gilt jedoch das Gegenteil: Dort liefert der eigens für die verteidigte
+Topologie trainierte Angreifer die besseren Ergebnisse, und der Generalist
+bleibt teils weit zurück -- gegen die Verteidiger von \emph{hub\_and\_spoke} und \emph{dmz}
+etwa mit 2,4 und 1,6~Prozent gegenüber 27,2 und 36,0~Prozent der
+Spezialisten (\Cref{tab:cj-eval}). Auch die Ausnahme trägt zudem einen
+Vorbehalt: Das gestufte Training des Super-Angreifers endete auf
+\emph{micro\_segmented} (\Cref{sec:phasen}); seine Stärke gerade dort kann
+deshalb ebenso Aktualität wie Breite sein -- die Policy wurde zuletzt auf
+dieser Topologie angepasst, und früher Gelerntes wird dabei teilweise
+überschrieben. Die vorliegenden Daten lassen beide Deutungen zu; keine von ihnen
+lässt sich ausschließen.
+
+Für die Fragestellung folgt daraus zweierlei. Erstens ist die
+Angreiferherkunft eine Einflussgröße eigener Art und darf nicht über alle
+Angreifer hinweg gemittelt werden, wie in \Cref{sec:evaluation} begründet.
+Zweitens beschreibt die Diagonale den ungünstigsten Fall, den ein Verteidiger
+zu erwarten hat, nämlich einen Gegner, der genau diese Topologie kennt.
+
+\section{Einordnung des Reward-Designs}
+\label{sec:rewarddiskussion}
+
+Der auffälligste Befund dieses Kapitels ist, dass die wirksamsten Verteidiger
+kaum sperren. Diese Beobachtung lässt zwei Deutungen zu; anhand der erhobenen
+Daten lässt sich zwischen ihnen nicht abschließend entscheiden.
+
+Die erste Deutung ist inhaltlich: In einem Netz, in dem ohnehin nur wenige
+Wege bestehen, ist das Neuaufsetzen das schärfere Mittel, weil es den
+Angreifer entfernt, statt ihn nur aufzuhalten. Dafür spricht, dass gerade die
+Verteidiger der beiden Topologien mit den wenigsten Kanten am häufigsten neu
+aufsetzen.
+
+Die zweite Deutung liegt im Reward-Entwurf. Der Abwehrbonus ist mit
+$0{,}00025 \cdot \text{Wert}(Z)$ je Schritt bewusst klein gehalten
+(\Cref{sec:abwehrbonus}), damit das Neuaufsetzen stets lohnender bleibt; das
+Verhältnis der Raten beträgt 20. Ein Reimage bringt dagegen sofort den vollen
+Knotenwert. Prävention ist damit zwar sichtbar, aber deutlich schwächer
+vergütet als Wiederherstellung, und der Agent folgt dieser Gewichtung.
+
+Beide Deutungen sind mit den Daten vereinbar. Zu trennen wären sie nur durch
+Läufe mit systematisch veränderter Abwehrbonusrate, die in dieser Arbeit nicht
+durchgeführt wurden. Festzuhalten bleibt, dass die in
+\Cref{sec:mehrstufig} beschriebene Einschließungsstrategie in keinem Lauf
+auftrat: Der Abwehrbonus genügte nicht, um eine mehrstufige Sperrkette
+aufzubauen.
+
+Ob sich damit auch die Diagnose des Referenzlaufs bestätigt, nach der
+Prävention im Reward unsichtbar blieb (\Cref{sec:marlon-fehler}), lässt
+sich dagegen nicht sagen: Die beiden Läufe sind dafür zu verschieden
+(\Cref{sec:limitationen}). Eine Kontrolle des Entwurfs liefert dafür die Obergrenze aus der
+Grundkopplung: Der Abwehrbonus ist so klein bemessen, dass er sich nicht zu
+positivem Reward farmen lassen soll (\Cref{sec:abwehrbonus}) -- und
+tatsächlich bleibt der Verteidiger-Reward in jeder einzelnen Episode von
+Training und Evaluation negativ, der beste gemessene Einzelwert liegt bei
+$-12{,}8$.
+
+\section{Limitationen}
+\label{sec:limitationen}
+
+Das Konvergenzkriterium unterscheidet die Topologien nicht. Es ist eigens für
+diese Arbeit entworfen und nicht durch Literatur gedeckt
+(\Cref{sec:konvergenz}); seine Schwäche liegt in der Normierung auf die
+Gesamtspanne des Laufs, die von den extremen Startwerten der Anfangsphase
+bestimmt wird. Ein strengerer Trendtest verschiebt den Zeitpunkt, ändert an
+dieser Bezugsgröße aber nichts (\Cref{sec:konvergenzergebnis}).
+
+Ein Maß ohne diese Schwäche ließe sich so bilden: Man bestimmt je Lauf den
+Median seiner ersten und seiner letzten zehn Episoden und bestimmt, ab
+welcher
+Episode er 90~Prozent der Strecke dazwischen erreicht hat und zehn Episoden
+lang hält. Bezugspunkt ist damit die Verbesserung des Laufs selbst, nicht seine
+Gesamtspanne. Gesucht wird erst ab Episode~11, weil kein Lauf als konvergiert
+gelten kann, bevor sein eigener Bezugspunkt feststeht; der frühestmögliche Wert
+liegt damit bei Episode~20.
+
+Angewendet auf die vorliegenden Daten erreichen alle 120 Läufe diese Marke, im
+Median in Episode~43. Die Mediane je Topologie lauten 50 für \emph{flat}, 45
+für \emph{dmz}, 42 für \emph{hub\_and\_spoke} und 39 für
+\emph{micro\_segmented} und ordnen die Topologien damit genauso wie Reward,
+Crown-Jewel-Quote und gehaltene Knoten. Nachweisbar ist auch diese Ordnung
+nicht, die Quartile reichen von 38 bis 68 in \emph{flat} und von 31 bis 55 in
+\emph{micro\_segmented}. Der Befund aus \Cref{sec:konvergenzergebnis} hängt also
+weder an der Schwelle noch an der Konstruktion des Maßes, sondern ebenso an der
+Zahl der Läufe. Weitere naheliegende Schritte wären ein Ausschluss der
+Anfangsphase und vor allem mehr Seeds je Zelle; eine Prüfung dieser
+Varianten liegt jedoch außerhalb des Umfangs dieser Arbeit.
+
+Jede Zelle beruht auf fünf Seeds. Henderson et~al.\ zeigen, dass allein der
+Zufallsstartwert bei Policy-Gradient-Verfahren zu deutlich verschiedenen
+Ergebnisverteilungen führen kann, und raten deshalb zu mehr Läufen und zur
+Angabe von Konfidenzbereichen~\cite{henderson2019deepreinforcementlearningmatters}.
+Fünf Seeds sind das untere Ende des dort empfohlenen Wertebereichs. Abgemildert wird das an
+zwei Stellen: Es werden alle Läufe berichtet und keine ausgewählt, und die
+Evaluation stützt sich auf Mediane, die ein einzelner Ausreißer nicht
+verschiebt. Für die Lernkurven gilt das nicht, dort schlägt ein einzelner Seed
+in das Mittel durch, wie \Cref{sec:lernkurven} zeigt. Die berichteten
+Unterschiede zwischen den Topologien sind allerdings so groß, dass sie sich
+nicht durch Streuung zwischen Seeds erklären lassen; kleinere Unterschiede, etwa
+zwischen \emph{dmz} und \emph{micro\_segmented}, wären erst mit einer
+größeren Zahl von Läufen aussagekräftig.
+
+Der Angreifer ist während des Verteidigertrainings eingefroren
+(\Cref{sec:phasen}). Der Verteidiger kann sich deshalb auf ein festes
+Verhalten einspielen, und die gemessene Wirksamkeit gilt zunächst nur gegen
+diesen einen Gegner. Die Auswertung je Matchup mildert diesen Umstand, da sechs
+verschiedene Angreifer geprüft werden, hebt ihn aber nicht
+vollständig auf. Das
+relativiert insbesondere den Befund, dass der passgenaue Angreifer am
+Trainingsende neutralisiert ist: Er gelingt einem Verteidiger, der sich
+ungestört auf genau dieses eine Verhalten einspielen konnte. Gegen einen
+mitlernenden Angreifer stünde diese Möglichkeit nicht offen, und der
+Einfluss der Angreiferherkunft könnte entsprechend größer ausfallen.
+
+Auch die Reihenfolge, in der der Super-Angreifer die fünf Topologien
+durchlief, wurde nicht variiert. Sie endete auf \emph{micro\_segmented}, und
+\Cref{sec:angreiferherkunft} zeigt, dass sich seine Stärke dort nicht von
+einem bloßen Aktualitätsvorteil der letzten Station trennen lässt.
+
+Der Hub in \emph{hub\_and\_spoke} ist ein übernehmbarer Knoten
+(\Cref{sec:topomodell}). In einem realen Netz wäre die Vermittlungsstelle
+häufig ein Gerät ohne Nutzerdienste. Die Ergebnisse dieser Topologie sind
+deshalb nicht ohne Weiteres auf eine Sterntopologie mit gehärtetem Zentrum zu
+übertragen.
+
+Zwei Entwurfsentscheidungen am Aktionsraum wurden nicht validiert. Der
+Dienststopp wurde entfernt, weil die knotenweite Sperre dieselbe Wirkung
+erzielt; ein Lauf mit beiden Aktionen nebeneinander wurde nicht gespielt
+(\Cref{sec:aktionsraum-def}). Ebenso wurde die Sperre
+von portweise auf knotenweise umgestellt, ohne beide Varianten zu
+vergleichen; an dieser Entscheidung hängt auch die Deutung der Sperrwirkung
+in \Cref{sec:aktionen}, denn eine portweise Sperre träfe in \emph{flat}
+nicht alle neun Zugänge zugleich. Ungeprüft blieb schließlich, ob der Verteidiger in \emph{flat}
+ohne sein dauerhaftes, überwiegend negativ verbuchtes Sperren besser
+abschnitte (\Cref{sec:aktionen}); auch dies würde eigene Läufe erfordern.
+
+Eine Lücke betrifft schließlich die Erhebung selbst. Die Aktionsstatistik
+zählt Freigaben allein nach Aktionstyp und hält nicht fest, ob der betroffene
+Knoten zum Zeitpunkt der Freigabe überhaupt gesperrt war. Berechtigte
+Freigaben lassen sich deshalb nachträglich nicht von folgenlosen trennen, was
+die Deutung ihres Anteils in \Cref{sec:aktionen} begrenzt. Der Sperrzustand
+liegt zur Laufzeit vor; ihn mitzuschreiben wäre der naheliegende Weg, diese
+Lücke zu schließen.
+
+Aus dem Vergleich mit dem Referenzlauf lassen sich nur eingeschränkt
+Ursachen ableiten.
+Zwischen beiden Läufen wurden mehrere Änderungen gleichzeitig vorgenommen,
+nämlich der Abwehrbonus, der Aktionsraum, die Maskierung, drei
+Fehlerkorrekturen -- und der Wegfall des Abbruchkriteriums, das die
+Referenzläufe schon nach wenigen Dutzend Episoden beendete
+(\Cref{sec:referenzlauf}). Welcher Anteil der Verbesserung auf welche
+Änderung entfällt, lässt sich daraus nicht bestimmen; insbesondere kann die
+Nähe von trainiertem und zufälligem Verteidiger im Referenzlauf auch an
+dessen kurzem Training gelegen haben, nicht allein an der im Reward
+unsichtbaren Prävention.
+
+Schließlich bleibt der Aufbau eine Simulation. \ac{CBS} bildet Angriffe als
+Folge diskreter Schritte auf einem gerichteten Graphen ab, ohne Zeitverhalten,
+ohne Erkennungsunsicherheit und mit einem Verteidiger, der den Zustand seines
+Netzes vollständig kennt. Die Ergebnisse sind Aussagen über dieses Modell. Ob
+sich die beobachtete Rangfolge der Topologien auf reale Netze überträgt, ist
+damit nicht gezeigt.

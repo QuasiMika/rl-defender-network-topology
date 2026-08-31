@@ -1,0 +1,202 @@
+% =====================================================================
+%  Bachelorarbeit CBS_MARLon
+%  Einfluss der Netzwerktopologie auf die Lerneffizienz eines
+%  RL-basierten Verteidigungsagenten in simulierten Cyberangriffs-
+%  szenarien.
+%
+%  Dokumentklasse: htwg-report (HTWG Corporate Identity)
+%  Quelle: https://github.com/FunkeMT/htwg-latex  (MIT, siehe
+%  LICENSE-htwg-template). Die Klasse liegt bewusst im Projekt, weil sie
+%  nicht ueber CTAN verfuegbar ist. Eine Abweichung vom Original ist im
+%  cls-File markiert (Zitierstil numerisch statt alphabetisch).
+%
+%  Kompilieren:  .\build.bat   (pdflatex + biber, kein Perl noetig)
+%  WICHTIG: thesis.pdf vorher im PDF-Viewer schliessen, sonst schlaegt
+%  der Build mit "I can't write on file thesis.pdf" fehl.
+% =====================================================================
+% oneside: einseitiger Satz. Ohne diese Option erbt die Klasse den
+% zweiseitigen Modus von "book"; Kapitel begaennen dann stets auf einer
+% rechten Seite und LaTeX schoebe dafuer Leerseiten ein. Die Option wird
+% von der Klasse an book durchgereicht (\DeclareOption*).
+% Fuer beidseitigen Druck einfach "oneside" entfernen.
+\documentclass[german,oneside]{htwg-report}
+
+% ── Kodierung und Schrift ────────────────────────────────────────────
+% Die Klasse laedt babel, setspace, amsmath, caption, xcolor, tikz,
+% listings, geometry, hyperref und biblatex bereits selbst.
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{microtype}
+\onehalfspacing            % 1,5-zeilig (typisch fuer Abschlussarbeiten)
+
+% Absaetze durch vertikalen Abstand statt durch Erstzeileneinzug trennen.
+% parskip setzt \parindent auf 0 und \parskip auf einen passenden Wert.
+\usepackage{parskip}
+
+% ── Mathematik & Zahlenformat ────────────────────────────────────────
+\usepackage{siunitx}
+\sisetup{output-decimal-marker={,}, group-separator={.}}  % dt. Zahlenformat
+
+% ── Grafiken und Tabellen ────────────────────────────────────────────
+\usepackage{graphicx}
+\graphicspath{{abbildungen/}}
+\usepackage{booktabs}
+\usepackage{tabularx}
+% longtable: Tabellen, die an ihrer Stelle im Text stehen bleiben (kein Float),
+% aber ueber Seiten hinweg umbrechen duerfen. Genutzt von den Reward-Tabellen in
+% Kapitel 3, die sonst als unteilbarer Block eine halbe Seite frei lassen.
+% Die X-Spalte von tabularx ist dort nicht verwendbar: longtable ermittelt seine
+% Spaltenbreiten in einem eigenen Durchlauf, was die Ausrichtung zerstoert.
+% Deshalb feste Breiten, hier einmal definiert.
+\usepackage{longtable}
+% Spalten der Reward-Tabellen: Ereignis, Reward (rechtsbuendig), Anmerkung.
+% Bewusst OHNE @{} an den Aussenkanten: colortbl zeichnet die grauen
+% Zeilenbaender stets um \tabcolsep breiter als die Spalten. Schneidet man den
+% aeusseren \tabcolsep mit @{} weg, stehen die Baender ueber die Striche von
+% booktabs hinaus. Behaelt man ihn, decken sich Baender und Striche genau.
+% Die Breiten sind entsprechend so gewaehlt, dass Spalten plus \tabcolsep
+% zusammen die Textbreite ergeben.
+\newcolumntype{E}{>{\raggedright\arraybackslash}p{0.24\textwidth}}
+\newcolumntype{W}{>{\raggedleft\arraybackslash}p{0.26\textwidth}}
+\newcolumntype{K}{>{\raggedright\arraybackslash}p{0.41\textwidth}}
+\usepackage{subcaption}
+\usepackage{adjustbox}     % max width fuer die Topologie-Abbildungen
+% float stellt [H] bereit: Abbildung bleibt exakt an der Stelle im Text, an der
+% sie steht. Noetig, weil die Topologie-Abbildungen unmittelbar zu dem Absatz
+% gehoeren, der sie beschreibt, und als Gleitobjekte sonst dazwischenrutschen.
+\usepackage{float}
+
+% ── Farben (Ergaenzung zur CI-Palette der Klasse) ────────────────────
+\definecolor{navy}{HTML}{1E2761}
+
+% \diag: hebt in den Matrizen aus Kapitel 4 die Zellen hervor, in denen
+% verteidigte Topologie und Trainingstopologie des Angreifers uebereinstimmen.
+% Hintergrundton plus Fettung, weil die Zeilen der Klasse ohnehin abwechselnd
+% grau hinterlegt sind und eine reine Fettung dort untergeht.
+\newcommand{\diag}[1]{\cellcolor{htwg-teal!18}\textbf{#1}}
+
+% \offen: gelb hinterlegte Stelle, an der noch etwas zu klaeren ist.
+% VOR DER ABGABE ENTFERNEN -- entweder den Aufruf aufloesen oder die
+% Definition auf \newcommand{\offen}[1]{#1} setzen, dann bleibt der Text
+% unveraendert und nur die Farbe verschwindet.
+% soul statt colorbox: eine colorbox ist ein unteilbarer Kasten und schiebt
+% laengere Stellen auf die naechste Seite; \hl bricht mit dem Text um.
+% Der markierte Text darf dafuer keine Makros und keine Mathematik enthalten.
+\usepackage{soul}
+\newcommand{\offen}[1]{{\sethlcolor{yellow}\hl{#1}}}
+
+% Nummerierung bis zur subsubsection. Ohne das erhaelt eine subsubsection
+% keine eigene Nummer, ein \label dahinter uebernimmt den zuletzt gesetzten
+% Zaehler (etwa eine Tabellenunterschrift), und der Querverweis springt an
+% die falsche Stelle. Das Inhaltsverzeichnis bleibt unveraendert, weil
+% tocdepth beim Klassenstandard 2 bleibt.
+\setcounter{secnumdepth}{3}
+
+% ── TikZ-Stile der Topologie-Abbildungen ─────────────────────────────
+% Die Abbildungen selbst werden von abbildungen/gen_topologie_figuren.py
+% aus thesis_topology/ erzeugt und nicht von Hand gepflegt.
+\input{abbildungen/topologie_stil}
+
+% ── Code-Listings ────────────────────────────────────────────────────
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{navy},
+  captionpos=b,
+}
+
+% ── Literatur ────────────────────────────────────────────────────────
+\addbibresource{literatur.bib}
+
+% ── Abkuerzungen und Querverweise ────────────────────────────────────
+% acronym nach hyperref (aus der Klasse), aber VOR cleveref laden.
+% nohyperlinks + diese Reihenfolge vermeiden die acronym/cleveref-
+% Kollision (undefinierte Hyper-Refs, mehrfach definiertes Label 'a').
+\usepackage[nohyperlinks]{acronym}
+\usepackage[ngerman]{cleveref}
+
+% =====================================================================
+%  METADATEN - hier und NUR hier alle Angaben pflegen.
+%  Cover und Titelblatt ziehen sich alles von hier; frontmatter/
+%  titelseite.tex muss nicht mehr angefasst werden.
+% =====================================================================
+\newcommand{\arbeitstitel}{Einfluss der Netzwerktopologie auf Reinforcement-Learning-basierte Verteidigungsagenten in simulierten Cyberangriffsszenarien}
+% Ohne \textsc: Kapitaelchen wirken in der serifenlosen CI-Schrift wie ein
+% Schriftwechsel, weil helvet keine echten Kapitaelchen hat und LaTeX sie
+% durch verkleinerte Grossbuchstaben ersetzt.
+\newcommand{\autorname}{Mika Oelhoff}
+\newcommand{\studiengang}{Wirtschaftsinformatik}
+\newcommand{\erstgutachter}{Prof.\ Dr.\ Bohnet}
+\newcommand{\zweitgutachter}{Prof.\ Dr.\ Langweg}
+
+% Abgabedatum: \today setzt automatisch den Tag des Kompilierens.
+% VOR DER ABGABE durch das feste Datum ersetzen, z.B. {15.\,September 2026}.
+% Sonst steht auf dem gedruckten Exemplar das Datum des letzten Builds.
+\newcommand{\abgabedatum}{31. August 2026}
+
+% Angaben fuer Cover und Titelblatt der htwg-report-Klasse
+\reporttype{bachelor}                 % steuert die B-S-C-Elemente des Covers
+\reporttypetext{Bachelorarbeit}
+\title[Einfluss der Netzwerktopologie auf Verteidigungsagenten]{\arbeitstitel}
+\author{\autorname}
+\studentnumber{304572}
+\studentemail{[mika.oelhoff@htwg-konstanz.de]}
+\doclocation{Konstanz}
+% \docdate speist NUR die Ortszeile auf dem Cover ("Konstanz, <Datum>").
+% Bewusst \today: waehrend des Schreibens sieht man auf dem Deckblatt,
+% wie aktuell ein Ausdruck ist. Das feste Abgabedatum steht auf dem
+% Titelblatt und kommt aus \abgabedatum.
+% Fuer die Abgabe ggf. auch hier auf \abgabedatum umstellen.
+\docdate{\today}
+
+\hypersetup{
+  pdftitle={\arbeitstitel},
+  pdfauthor={\autorname},
+}
+
+% =====================================================================
+\begin{document}
+\frenchspacing
+
+% ── Titelei (roemische Seitenzahlen) ─────────────────────────────────
+\frontmatter
+
+\makecover[]
+\input{frontmatter/titelseite}
+
+\input{frontmatter/kurzfassung}
+
+\tableofcontents
+
+\cleardoublepage
+\input{frontmatter/abkuerzungen}
+
+\cleardoublepage
+\listoffigures
+\listoftables
+
+% ── Hauptteil (arabische Seitenzahlen) ───────────────────────────────
+\mainmatter
+
+\input{chapters/01_einleitung}
+\input{chapters/02_grundlagen}
+\input{chapters/03_versuchsaufbau}
+\input{chapters/04_ergebnisse}
+\input{chapters/06_fazit}
+
+% ── Literaturverzeichnis ─────────────────────────────────────────────
+\cleardoublepage
+\printbibliography[heading=bibintoc, title={Literaturverzeichnis}]
+
+% ── Anhang ───────────────────────────────────────────────────────────
+\appendix
+\input{chapters/A_anhang}
+
+% ── Eidesstattliche Erklaerung ───────────────────────────────────────
+\cleardoublepage
+\input{frontmatter/erklaerung}
+
+\end{document}

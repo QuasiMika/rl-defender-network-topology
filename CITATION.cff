@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "Wenn Sie diese Arbeit verwenden, zitieren Sie bitte wie folgt."
+title: "Einfluss der Netzwerktopologie auf Reinforcement-Learning-basierte Verteidigungsagenten in simulierten Cyberangriffsszenarien"
+abstract: >-
+  Untersucht den Einfluss der Netzwerktopologie auf Verteidigungsagenten, die
+  mit Proximal Policy Optimization in CyberBattleSim trainiert werden. Vier
+  Topologien mit identischem Inventar werden gegen je sechs eingefrorene
+  Angreifer verteidigt, ausgewertet über 120 Trainingsläufe und 9000
+  Evaluationsepisoden.
+authors:
+  - family-names: Oelhoff
+    given-names: Mika
+type: software
+license: MIT
+keywords:
+  - reinforcement-learning
+  - cybersecurity
+  - network-topology
+  - cyberbattlesim
+  - multi-agent
+preferred-citation:
+  type: thesis
+  title: "Einfluss der Netzwerktopologie auf Reinforcement-Learning-basierte Verteidigungsagenten in simulierten Cyberangriffsszenarien"
+  authors:
+    - family-names: Oelhoff
+      given-names: Mika
+  thesis-type: "Bachelorarbeit"
+  institution:
+    name: "Hochschule Konstanz Technik, Wirtschaft und Gestaltung"
+  year: 2026
+  month: 8

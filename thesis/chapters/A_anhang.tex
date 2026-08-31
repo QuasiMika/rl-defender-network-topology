@@ -1,0 +1,263 @@
+\chapter{Anhang}
+\label{ch:anhang}
+
+Der Anhang dokumentiert die Einstellungen der Trainingsläufe und zeigt
+jene Verläufe vollständig, die \Cref{ch:ergebnisse} nur ausschnittweise
+wiedergibt. Die Abbildungen decken alle 24 Matchups ab, getrennt nach
+verteidigter Topologie: Crown-Jewel-Quote, gehaltene Knoten, Schritte mit
+\ac{SLA}-Bruch, Abwehrbonus und Konvergenzmarken.
+
+\section{Hyperparameter}
+\label{sec:hyperparameter}
+
+Die Agenten werden mit den Voreinstellungen von \ac{SB3} trainiert; im
+Programmcode wird kein Hyperparameter gesetzt. \Cref{tab:hyperparameter} führt
+die Werte auf, die daraus folgen.
+
+Diese Zurückhaltung ist beabsichtigt. Würden die Parameter angepasst, so
+geschähe das notwendigerweise an einer bestimmten Topologie, und die dort
+gefundenen Werte bevorzugten diese gegenüber den übrigen. Da der Vergleich der
+Topologien der Gegenstand der Arbeit ist, wäre damit genau die unabhängige
+Variable verunreinigt. Einheitliche Voreinstellungen halten diesen Einfluss
+konstant.
+
+\begin{table}[H]
+  \centering
+  \caption[Hyperparameter des Trainings]{Hyperparameter des Trainings. Alle
+  Werte entsprechen den Voreinstellungen von \ac{SB3} in der eingesetzten
+  Fassung; abweichend gesetzt wird allein die Zahl der Zeitschritte.}
+  \label{tab:hyperparameter}
+  \begin{tabularx}{\textwidth}{llX}
+    \toprule
+    Parameter & Wert & Bedeutung \\
+    \midrule
+    \texttt{learning\_rate}       & \num{0.0003} & Schrittweite $\alpha$ in \Cref{eq:gradientenschritt} \\
+    \texttt{n\_steps}             & \num{2048}   & Länge eines Rollouts, also gesammelte Schritte je Lernphase \\
+    \texttt{batch\_size}          & \num{64}     & Größe eines Minibatches \\
+    \texttt{n\_epochs}            & \num{10}     & Durchgänge über denselben Rollout \\
+    \texttt{gamma}                & \num{0.99}   & Diskontfaktor $\gamma$ aus \Cref{eq:return} \\
+    \texttt{gae\_lambda}          & \num{0.95}   & Gewichtung zwischen Critic-Schätzung und beobachteten Rewards bei der Vorteilsschätzung \\
+    \texttt{clip\_range}          & \num{0.2}    & Breite des Bandes $\varepsilon$ in \Cref{eq:ppo-clip} \\
+    \texttt{normalize\_advantage} & wahr         & Vorteile werden je Minibatch auf Mittelwert null und Streuung eins gebracht \\
+    \texttt{ent\_coef}            & \num{0.0}    & Gewicht des Entropie-Anteils, der zusätzliche Exploration begünstigen würde \\
+    \texttt{vf\_coef}             & \num{0.5}    & Gewicht des Critic-Verlusts gegenüber dem des Actors \\
+    \texttt{max\_grad\_norm}      & \num{0.5}    & Obergrenze für die Länge des Gradienten je Schritt \\
+    \midrule
+    Zeitschritte je Lauf          & \num{500000} & eigens gesetzt, siehe \Cref{sec:phasen} \\
+    \bottomrule
+  \end{tabularx}
+\end{table}
+
+\section{Crown-Jewel-Quote je Topologie}
+\label{app:cj}
+
+Die folgenden vier Abbildungen zeigen den Anteil der Episoden mit erreichtem
+Crown Jewel für alle 24 Matchups. \Cref{sec:cj-verlauf} stellt daraus nur die
+vier Matchups auf der Diagonalen dar. Gebildet ist die Quote wie dort über ein
+Fenster von elf Episoden und alle fünf Seeds; die Skala ist in allen Feldern
+dieselbe. Fett überschrieben ist jeweils das Feld des Angreifers, der auf der
+verteidigten Topologie trainiert wurde.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{cj_flat}
+  \caption[Crown-Jewel-Quote auf \emph{flat}]{Crown-Jewel-Quote der Verteidiger
+  auf \emph{flat} gegen alle sechs Angreifer.}
+  \label{fig:cj-flat}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{cj_hub_and_spoke}
+  \caption[Crown-Jewel-Quote auf \emph{hub\_and\_spoke}]{Crown-Jewel-Quote der
+  Verteidiger auf \emph{hub\_and\_spoke} gegen alle sechs Angreifer.}
+  \label{fig:cj-hs}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{cj_dmz}
+  \caption[Crown-Jewel-Quote auf \emph{dmz}]{Crown-Jewel-Quote der Verteidiger
+  auf \emph{dmz} gegen alle sechs Angreifer.}
+  \label{fig:cj-dmz}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{cj_micro_segmented}
+  \caption[Crown-Jewel-Quote auf \emph{micro\_segmented}]{Crown-Jewel-Quote der
+  Verteidiger auf \emph{micro\_segmented} gegen alle sechs Angreifer.}
+  \label{fig:cj-ms}
+\end{figure}
+
+\section{Gehaltene Knoten je Topologie}
+\label{app:knoten}
+
+Die folgenden vier Abbildungen zeigen die größte Zahl gleichzeitig gehaltener
+Knoten je Episode für alle 24 Matchups, gemittelt über die fünf Seeds und
+geglättet über fünf Episoden. \Cref{sec:knoten-verlauf} stellt daraus nur
+die vier Matchups auf der Diagonalen dar. Die Skala reicht in allen Feldern
+von null bis zehn Knoten. Fett überschrieben ist jeweils das Feld des
+Angreifers, der auf der verteidigten Topologie trainiert wurde.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{knoten_flat}
+  \caption[Gehaltene Knoten auf \emph{flat}]{Gehaltene Knoten der Verteidiger
+  auf \emph{flat} gegen alle sechs Angreifer.}
+  \label{fig:knoten-flat}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{knoten_hub_and_spoke}
+  \caption[Gehaltene Knoten auf \emph{hub\_and\_spoke}]{Gehaltene Knoten der Verteidiger
+  auf \emph{hub\_and\_spoke} gegen alle sechs Angreifer.}
+  \label{fig:knoten-hs}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{knoten_dmz}
+  \caption[Gehaltene Knoten auf \emph{dmz}]{Gehaltene Knoten der Verteidiger
+  auf \emph{dmz} gegen alle sechs Angreifer.}
+  \label{fig:knoten-dmz}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{knoten_micro_segmented}
+  \caption[Gehaltene Knoten auf \emph{micro\_segmented}]{Gehaltene Knoten der Verteidiger
+  auf \emph{micro\_segmented} gegen alle sechs Angreifer.}
+  \label{fig:knoten-ms}
+\end{figure}
+
+\section{\acs{SLA}-Brüche je Topologie}
+\label{app:sla}
+
+Die folgenden vier Abbildungen zeigen, in wie vielen Schritten je Episode die
+Verfügbarkeit unter der Schwelle lag, gemittelt über die fünf Seeds. Jedes Feld
+trägt eine eigene Skala, weil die Werte weit auseinanderliegen; $\Sigma$ nennt
+die Summe aller Bruchschritte des Matchups über alle fünf Seeds.
+\Cref{fig:sla-einbrueche} zeigt zwei dieser Fälle nach Seeds getrennt.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{sla_flat}
+  \caption[\acs{SLA}-Brüche auf \emph{flat}]{Schritte mit \ac{SLA}-Bruch der
+  Verteidiger auf \emph{flat} gegen alle sechs Angreifer.}
+  \label{fig:sla-flat}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{sla_hub_and_spoke}
+  \caption[\acs{SLA}-Brüche auf \emph{hub\_and\_spoke}]{Schritte mit
+  \ac{SLA}-Bruch der Verteidiger auf \emph{hub\_and\_spoke} gegen alle sechs
+  Angreifer.}
+  \label{fig:sla-hs}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{sla_dmz}
+  \caption[\acs{SLA}-Brüche auf \emph{dmz}]{Schritte mit \ac{SLA}-Bruch der
+  Verteidiger auf \emph{dmz} gegen alle sechs Angreifer.}
+  \label{fig:sla-dmz}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{sla_micro_segmented}
+  \caption[\acs{SLA}-Brüche auf \emph{micro\_segmented}]{Schritte mit
+  \ac{SLA}-Bruch der Verteidiger auf \emph{micro\_segmented} gegen alle sechs
+  Angreifer.}
+  \label{fig:sla-ms}
+\end{figure}
+
+
+\section{Abwehrbonus je Topologie}
+\label{app:abwehr}
+
+Die folgenden vier Abbildungen zeigen den Abwehrbonus je Episode für alle 24
+Matchups, gemittelt über die fünf Seeds und geglättet über fünf Episoden;
+\Cref{sec:aktionen} zeigt daraus nur das Mittel über die sechs Angreifer je
+Topologie. Die Skala ist in allen Feldern dieselbe, die Nulllinie ist
+eingezeichnet. Fett überschrieben ist jeweils das Feld des Angreifers, der
+auf der verteidigten Topologie trainiert wurde.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{abwehr_flat}
+  \caption[Abwehrbonus auf \emph{flat}]{Abwehrbonus der Verteidiger
+  auf \emph{flat} gegen alle sechs Angreifer.}
+  \label{fig:abwehr-flat}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{abwehr_hub_and_spoke}
+  \caption[Abwehrbonus auf \emph{hub\_and\_spoke}]{Abwehrbonus der Verteidiger
+  auf \emph{hub\_and\_spoke} gegen alle sechs Angreifer.}
+  \label{fig:abwehr-hs}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{abwehr_dmz}
+  \caption[Abwehrbonus auf \emph{dmz}]{Abwehrbonus der Verteidiger
+  auf \emph{dmz} gegen alle sechs Angreifer.}
+  \label{fig:abwehr-dmz}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{abwehr_micro_segmented}
+  \caption[Abwehrbonus auf \emph{micro\_segmented}]{Abwehrbonus der Verteidiger
+  auf \emph{micro\_segmented} gegen alle sechs Angreifer.}
+  \label{fig:abwehr-ms}
+\end{figure}
+
+\section{Konvergenzmarken je Topologie}
+\label{app:konvergenz}
+
+Die folgenden vier Abbildungen zeigen für alle 24 Matchups, an welcher Stelle
+des Verlaufs die beiden in \Cref{sec:konvergenzergebnis} verglichenen Maße
+greifen. Gezeichnet ist der Verteidiger-Reward, gemittelt über die fünf Seeds
+und geglättet über fünf Episoden. Die drei Senkrechten markieren das Kriterium
+aus \Cref{sec:konvergenz}, dasselbe Kriterium mit dem strengeren Trendtest aus
+\Cref{sec:konvergenzergebnis} und die 90-Prozent-Marke aus
+\Cref{sec:limitationen}, jeweils gemittelt über die fünf Seeds. Fett überschrieben ist das Feld des Angreifers, der auf
+der verteidigten Topologie trainiert wurde.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{konvergenz_flat}
+  \caption[Konvergenzmarken auf \emph{flat}]{Konvergenzmarken der Verteidiger
+  auf \emph{flat} gegen alle sechs Angreifer.}
+  \label{fig:konv-flat}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{konvergenz_hub_and_spoke}
+  \caption[Konvergenzmarken auf \emph{hub\_and\_spoke}]{Konvergenzmarken der
+  Verteidiger auf \emph{hub\_and\_spoke} gegen alle sechs Angreifer.}
+  \label{fig:konv-hs}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{konvergenz_dmz}
+  \caption[Konvergenzmarken auf \emph{dmz}]{Konvergenzmarken der Verteidiger
+  auf \emph{dmz} gegen alle sechs Angreifer.}
+  \label{fig:konv-dmz}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\textwidth]{konvergenz_micro_segmented}
+  \caption[Konvergenzmarken auf \emph{micro\_segmented}]{Konvergenzmarken der
+  Verteidiger auf \emph{micro\_segmented} gegen alle sechs Angreifer.}
+  \label{fig:konv-ms}
+\end{figure}

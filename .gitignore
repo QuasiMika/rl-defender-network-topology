@@ -1,0 +1,85 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+.eggs/
+
+# Virtuelle Umgebung
+.venv/
+
+# Uploads (temporäre Uploads über Web-UI)
+MARLon/models/uploads/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs & Outputs
+*.log
+nohup.out
+
+# Conda/venv
+.env
+env/
+venv/
+
+# VS Code
+.vscode/
+
+# Betriebssystem
+.DS_Store
+Thumbs.db
+
+# Claude Code intern
+.claude/
+
+# Schlüssel und Credentials – niemals committen
+key.txt
+key.txt.pub
+*.pem
+*.key
+
+# Defender-Modelle der Matrix-Laeufe: ~360 MB, fuer die Auswertung nicht noetig.
+# Angreifer-Modelle (experiments/*/attackers/) bleiben bewusst versioniert,
+# da Phase 2 sie auf jeder Maschine braucht.
+experiments/*/defenders/**/*.zip
+
+# Aus combined_episodes.csv regenerierbare Auswertungsartefakte im
+# Wurzelverzeichnis. Bewusst mit fuehrendem Schraegstrich: die analysis.json
+# unter experiments/<lauf>/deck/ ist Eingabe des Foliensatz-Generators und
+# gehoert mit ins Repository.
+/analysis.json
+/partial_matrix.json
+/attacker_matrix.json
+/boxplot_matrix.json
+/mean_curves.json
+/timeline_data.json
+/timeline_full.json
+
+# Ausgaben langlaufender Jobs (wie *.log, nur andere Endung)
+*.out
+
+# Temporaere Hilfsskripte fuer Start, Status und Stopp der Laeufe.
+# Bewusst nicht "_*.py": das trifft auch __init__.py und schliesst damit
+# ganze Python-Pakete aus dem Repository aus.
+_[a-z]*.sh
+_[a-z]*.py
+
+# Zwischenstand einer Auswertung
+analysis_neu.json
+
+# Node-Abhaengigkeiten fuer die Deck-Erzeugung (pptxgenjs)
+node_modules/
+
+# Sperrdateien von Office (~$name.pptx, entsteht beim Oeffnen)
+~$*
+
+# Temporaere Textschnipsel
+_*.txt
+
+# Windows-Alternate-Data-Streams (entstehen bei Downloads/Kopien)
+*:Zone.Identifier
+
+# MARLon wird per setup_marlon.sh beim Urheber geholt und gepatcht,
+# nicht mitgeliefert (das Projekt steht ohne Lizenz im Netz).
+/MARLon/

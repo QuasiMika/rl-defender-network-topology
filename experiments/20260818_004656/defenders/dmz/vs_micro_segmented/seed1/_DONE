@@ -1,0 +1,8 @@
+{
+  "attacker": "experiments/20260818_004656/defenders/dmz/vs_micro_segmented/seed1/ppo_attacker_CyberBattleDMZ_thesis_v0_20260818_081540_126591.zip",
+  "defender": "experiments/20260818_004656/defenders/dmz/vs_micro_segmented/seed1/ppo_defender_CyberBattleDMZ_thesis_v0_20260818_081540_126591.zip",
+  "csv": "experiments/20260818_004656/defenders/dmz/vs_micro_segmented/seed1/training_log_CyberBattleDMZ_thesis_v0_20260818_081540_126591.csv",
+  "run_id": "CyberBattleDMZ_thesis_v0_20260818_081540_126591",
+  "env_id": "CyberBattleDMZ-thesis-v0",
+  "total_timesteps": 500000
+}

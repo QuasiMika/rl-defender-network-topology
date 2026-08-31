@@ -1,0 +1,26 @@
+{
+  "attacker_steps": 500000,
+  "defender_steps": 500000,
+  "episode_steps": 2000,
+  "solo_attacker_topologies": [
+    "chain",
+    "flat",
+    "hub_and_spoke",
+    "dmz",
+    "micro_segmented"
+  ],
+  "super_attacker_order": [
+    "chain",
+    "flat",
+    "hub_and_spoke",
+    "dmz",
+    "micro_segmented"
+  ],
+  "defender_topologies": [
+    "flat",
+    "hub_and_spoke",
+    "dmz",
+    "micro_segmented"
+  ],
+  "started_at": "2026-08-18T00:46:56.209096"
+}

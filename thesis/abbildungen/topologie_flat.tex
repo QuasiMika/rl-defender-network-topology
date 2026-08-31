@@ -1,0 +1,27 @@
+% AUTOMATISCH ERZEUGT von gen_topologie_figuren.py -- nicht von Hand aendern.
+\begin{adjustbox}{max width=\textwidth}
+\begin{tikzpicture}[topofig, scale=1.0]
+  \node[entrynode] (WebServer) at (0.0,4.0) {WebServer\\[-1pt]{\tiny 0\,P \textbar\ --}};
+  \node[netnode] (Workstation1) at (-3.8,-1.24) {WS1\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (Workstation2) at (-2.35,-3.24) {WS2\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (Workstation3) at (0.0,-4.0) {WS3\\[-1pt]{\tiny 10\,P \textbar\ SSH}};
+  \node[netnode] (MailServer) at (2.35,-3.24) {MailServer\\[-1pt]{\tiny 15\,P \textbar\ HTTPS}};
+  \node[netnode] (FileServer) at (-3.8,1.24) {FileServer\\[-1pt]{\tiny 20\,P \textbar\ SMB}};
+  \node[netnode] (AppServer) at (2.35,3.24) {AppServer\\[-1pt]{\tiny 15\,P \textbar\ HTTP}};
+  \node[netnode] (BackupServer) at (-2.35,3.24) {BackupServer\\[-1pt]{\tiny 25\,P \textbar\ SMB}};
+  \node[dcnode] (DomainController) at (3.8,-1.24) {DomainCtrl\\[-1pt]{\tiny 30\,P \textbar\ RDP}};
+  \node[cjnode] (DatabaseServer) at (3.8,1.24) {DatenbankSrv\\[-1pt]{\tiny 100\,P \textbar\ SQL}};
+  % Vollstaendiger Graph: alle Kanten wuerden die Abbildung unlesbar
+  % machen; stattdessen Hinweis in der Legende.
+  \draw[cred] (WebServer) to[bend right=14] (AppServer);
+  \draw[cred] (AppServer) to[bend right=14] (DatabaseServer);
+  \draw[cred] (AppServer) to[bend right=14] (DomainController);
+  \draw[cred] (MailServer) to[bend right=14] (DomainController);
+  \draw[cred] (FileServer) to[bend right=14] (BackupServer);
+  \draw[cred] (FileServer) to[bend right=14] (DomainController);
+  \draw[cred] (Workstation1) to[bend right=14] (FileServer);
+  \draw[cred] (Workstation2) to[bend right=14] (FileServer);
+  \draw[cred] (Workstation3) to[bend right=14] (FileServer);
+  \node[dcbadge, anchor=north] at (3.8,-1.8599999999999999) {h\"alt alle Zugangsdaten};
+\end{tikzpicture}
+\end{adjustbox}

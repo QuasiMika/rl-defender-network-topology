@@ -1,0 +1,8 @@
+{
+  "attacker": "experiments/20260818_004656/defenders/hub_and_spoke/vs_flat/seed2/ppo_attacker_CyberBattleHubSpoke_thesis_v0_20260818_070807_514103.zip",
+  "defender": "experiments/20260818_004656/defenders/hub_and_spoke/vs_flat/seed2/ppo_defender_CyberBattleHubSpoke_thesis_v0_20260818_070807_514103.zip",
+  "csv": "experiments/20260818_004656/defenders/hub_and_spoke/vs_flat/seed2/training_log_CyberBattleHubSpoke_thesis_v0_20260818_070807_514103.csv",
+  "run_id": "CyberBattleHubSpoke_thesis_v0_20260818_070807_514103",
+  "env_id": "CyberBattleHubSpoke-thesis-v0",
+  "total_timesteps": 500000
+}

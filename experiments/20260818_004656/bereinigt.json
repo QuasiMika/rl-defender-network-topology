@@ -1,0 +1,391 @@
+{
+ "strafe": 10.0,
+ "je_matchup": {
+  "flat": {
+   "chain": {
+    "zufaellig": {
+     "roh": -1244.0,
+     "bereinigt": -24.0,
+     "stops_sauber": 119.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -64.0,
+     "bereinigt": -24.0,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "flat": {
+    "zufaellig": {
+     "roh": -1296.8,
+     "bereinigt": -178.9,
+     "stops_sauber": 111.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -184.0,
+     "bereinigt": -156.0,
+     "stops_sauber": 3.0,
+     "sla_ep_pct": 0.8
+    }
+   },
+   "hub_and_spoke": {
+    "zufaellig": {
+     "roh": -1349.5,
+     "bereinigt": -235.1,
+     "stops_sauber": 111.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -199.9,
+     "bereinigt": -170.7,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "dmz": {
+    "zufaellig": {
+     "roh": -1346.0,
+     "bereinigt": -156.0,
+     "stops_sauber": 118.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -186.0,
+     "bereinigt": -156.0,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "micro_segmented": {
+    "zufaellig": {
+     "roh": -1301.7,
+     "bereinigt": -147.1,
+     "stops_sauber": 116.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -143.3,
+     "bereinigt": -131.9,
+     "stops_sauber": 1.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "super": {
+    "zufaellig": {
+     "roh": -1340.0,
+     "bereinigt": -101.0,
+     "stops_sauber": 122.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -136.0,
+     "bereinigt": -110.0,
+     "stops_sauber": 3.0,
+     "sla_ep_pct": 0.0
+    }
+   }
+  },
+  "hub_and_spoke": {
+   "chain": {
+    "zufaellig": {
+     "roh": -1234.0,
+     "bereinigt": -24.0,
+     "stops_sauber": 120.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -44.0,
+     "bereinigt": -24.0,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "flat": {
+    "zufaellig": {
+     "roh": -1293.8,
+     "bereinigt": -127.9,
+     "stops_sauber": 116.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -146.8,
+     "bereinigt": -128.0,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "hub_and_spoke": {
+    "zufaellig": {
+     "roh": -1275.3,
+     "bereinigt": -281.4,
+     "stops_sauber": 100.0,
+     "sla_ep_pct": 15.2
+    },
+    "trainiert": {
+     "roh": -177.8,
+     "bereinigt": -168.7,
+     "stops_sauber": 1.0,
+     "sla_ep_pct": 15.2
+    }
+   },
+   "dmz": {
+    "zufaellig": {
+     "roh": -1285.4,
+     "bereinigt": -78.0,
+     "stops_sauber": 118.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -96.0,
+     "bereinigt": -78.3,
+     "stops_sauber": 1.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "micro_segmented": {
+    "zufaellig": {
+     "roh": -1269.1,
+     "bereinigt": -131.0,
+     "stops_sauber": 116.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -112.5,
+     "bereinigt": -101.5,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "super": {
+    "zufaellig": {
+     "roh": -1368.3,
+     "bereinigt": -173.5,
+     "stops_sauber": 120.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -185.1,
+     "bereinigt": -166.7,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   }
+  },
+  "dmz": {
+   "chain": {
+    "zufaellig": {
+     "roh": -1262.0,
+     "bereinigt": -68.5,
+     "stops_sauber": 120.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -80.1,
+     "bereinigt": -68.5,
+     "stops_sauber": 1.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "flat": {
+    "zufaellig": {
+     "roh": -1314.0,
+     "bereinigt": -106.1,
+     "stops_sauber": 120.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -122.3,
+     "bereinigt": -103.0,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "hub_and_spoke": {
+    "zufaellig": {
+     "roh": -1244.0,
+     "bereinigt": -66.3,
+     "stops_sauber": 117.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -80.9,
+     "bereinigt": -54.0,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "dmz": {
+    "zufaellig": {
+     "roh": -1275.9,
+     "bereinigt": -221.5,
+     "stops_sauber": 106.0,
+     "sla_ep_pct": 7.2
+    },
+    "trainiert": {
+     "roh": -198.4,
+     "bereinigt": -191.3,
+     "stops_sauber": 0.0,
+     "sla_ep_pct": 8.8
+    }
+   },
+   "micro_segmented": {
+    "zufaellig": {
+     "roh": -1222.0,
+     "bereinigt": -22.0,
+     "stops_sauber": 120.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -32.0,
+     "bereinigt": -22.0,
+     "stops_sauber": 1.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "super": {
+    "zufaellig": {
+     "roh": -1334.2,
+     "bereinigt": -181.1,
+     "stops_sauber": 117.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -182.7,
+     "bereinigt": -165.9,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   }
+  },
+  "micro_segmented": {
+   "chain": {
+    "zufaellig": {
+     "roh": -1250.0,
+     "bereinigt": -24.0,
+     "stops_sauber": 122.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -44.0,
+     "bereinigt": -24.0,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "flat": {
+    "zufaellig": {
+     "roh": -1297.3,
+     "bereinigt": -131.2,
+     "stops_sauber": 117.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -140.6,
+     "bereinigt": -126.8,
+     "stops_sauber": 1.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "hub_and_spoke": {
+    "zufaellig": {
+     "roh": -1280.1,
+     "bereinigt": -77.5,
+     "stops_sauber": 117.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -92.4,
+     "bereinigt": -68.4,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "dmz": {
+    "zufaellig": {
+     "roh": -1266.0,
+     "bereinigt": -60.4,
+     "stops_sauber": 121.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -81.6,
+     "bereinigt": -72.1,
+     "stops_sauber": 1.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "micro_segmented": {
+    "zufaellig": {
+     "roh": -1355.3,
+     "bereinigt": -218.3,
+     "stops_sauber": 113.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -213.4,
+     "bereinigt": -191.7,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   },
+   "super": {
+    "zufaellig": {
+     "roh": -1356.2,
+     "bereinigt": -170.9,
+     "stops_sauber": 119.0,
+     "sla_ep_pct": 0.0
+    },
+    "trainiert": {
+     "roh": -188.4,
+     "bereinigt": -165.0,
+     "stops_sauber": 2.0,
+     "sla_ep_pct": 0.0
+    }
+   }
+  }
+ },
+ "je_topologie": {
+  "flat": {
+   "zufaellig": {
+    "roh": -1313.0,
+    "bereinigt": -140.3
+   },
+   "trainiert": {
+    "roh": -152.2,
+    "bereinigt": -124.8
+   }
+  },
+  "hub_and_spoke": {
+   "zufaellig": {
+    "roh": -1287.7,
+    "bereinigt": -136.0
+   },
+   "trainiert": {
+    "roh": -127.0,
+    "bereinigt": -111.2
+   }
+  },
+  "dmz": {
+   "zufaellig": {
+    "roh": -1275.3,
+    "bereinigt": -110.9
+   },
+   "trainiert": {
+    "roh": -116.1,
+    "bereinigt": -100.8
+   }
+  },
+  "micro_segmented": {
+   "zufaellig": {
+    "roh": -1300.8,
+    "bereinigt": -113.7
+   },
+   "trainiert": {
+    "roh": -126.7,
+    "bereinigt": -108.0
+   }
+  }
+ }
+}

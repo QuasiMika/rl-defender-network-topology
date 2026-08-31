@@ -1,0 +1,8 @@
+{
+  "attacker": "/home/mika/projects/CBS_MARLon/experiments/20260818_004656/attackers/super/stage1_chain/ppo_attacker_CyberBattleChain_thesis_v0_20260818_014026_399510.zip",
+  "defender": null,
+  "csv": "/home/mika/projects/CBS_MARLon/experiments/20260818_004656/attackers/super/stage1_chain/training_log_CyberBattleChain_thesis_v0_20260818_014026_399510.csv",
+  "run_id": "CyberBattleChain_thesis_v0_20260818_014026_399510",
+  "env_id": "CyberBattleChain-thesis-v0",
+  "total_timesteps": 500000
+}

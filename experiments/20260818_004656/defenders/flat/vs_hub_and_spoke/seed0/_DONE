@@ -1,0 +1,8 @@
+{
+  "attacker": "experiments/20260818_004656/defenders/flat/vs_hub_and_spoke/seed0/ppo_attacker_CyberBattleFlat_thesis_v0_20260818_061912_585533.zip",
+  "defender": "experiments/20260818_004656/defenders/flat/vs_hub_and_spoke/seed0/ppo_defender_CyberBattleFlat_thesis_v0_20260818_061912_585533.zip",
+  "csv": "experiments/20260818_004656/defenders/flat/vs_hub_and_spoke/seed0/training_log_CyberBattleFlat_thesis_v0_20260818_061912_585533.csv",
+  "run_id": "CyberBattleFlat_thesis_v0_20260818_061912_585533",
+  "env_id": "CyberBattleFlat-thesis-v0",
+  "total_timesteps": 500000
+}

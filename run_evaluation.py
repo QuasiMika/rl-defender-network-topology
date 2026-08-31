@@ -39,6 +39,8 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "MARLon"))
+# CyberBattleSim liegt als Unterordner im Repo (siehe experiment_matrix_lib.py).
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "CyberBattleSim"))
 
 STUFEN = ["keiner", "zufaellig", "trainiert"]
 

@@ -1,0 +1,18 @@
+# Abhaengigkeiten dieser Arbeit. Getestet mit Python 3.10 unter Linux (WSL 2).
+#
+#   pip install -r requirements.txt
+#
+# Enthaelt CyberBattleSim/requirements.txt mit und ergaenzt es um die
+# Lernverfahren, die dort nicht aufgefuehrt sind (torch, stable-baselines3,
+# sb3-contrib). Ohne diese drei scheitert bereits der Import der Trainings-
+# skripte.
+
+-r CyberBattleSim/requirements.txt
+
+# Lernverfahren
+torch==2.11.0
+stable-baselines3==2.8.0
+sb3-contrib==2.8.0
+
+# Auswertung
+pandas==2.3.3

@@ -121,6 +121,23 @@ Python 3.10 unter Linux (getestet in WSL 2).
 | networkx | 3.2.1 |
 | matplotlib | 3.10.8 |
 
+Alles zusammen installiert die `requirements.txt` im Wurzelverzeichnis:
+
+```bash
+pip install -r requirements.txt
+```
+
+Sie bindet `CyberBattleSim/requirements.txt` ein (dort stehen gymnasium, numpy,
+networkx, plotly, pandas und weitere) und ergänzt die Lernverfahren torch,
+stable-baselines3 und sb3-contrib, die dort **nicht** aufgeführt sind. Wer nur
+die Datei der Simulationsumgebung installiert, kann die Trainingsskripte nicht
+starten.
+
+Voraussetzungen ausserhalb von Python: `git` und `patch` für
+`setup_marlon.sh`, sowie eine Netzverbindung, da MARLon beim Urheber geholt
+wird. Unter Windows läuft das Skript in WSL oder Git Bash, nicht in
+PowerShell.
+
 > `MARLon/requirements.txt` stammt unverändert aus dem Upstream-Projekt und
 > beschreibt **nicht** diese Umgebung (dort noch `gym`, SB3 1.3.0, torch 1.10).
 > Für die Foliensätze zusätzlich Node.js mit `pptxgenjs` (`npm install`).
@@ -132,7 +149,8 @@ lassen sich daraus erzeugen, **ohne neu zu trainieren**, dafür genügen die
 Schritte 3 bis 5.
 
 ```bash
-# 0. MARLon holen und patchen (einmalig, Voraussetzung für alles Weitere)
+# 0. Abhängigkeiten und MARLon (einmalig, Voraussetzung für alles Weitere)
+pip install -r requirements.txt
 ./setup_marlon.sh
 
 # 1. Angreifer-Vortraining und Verteidigermatrix           [~2,5 h / ~24 h]

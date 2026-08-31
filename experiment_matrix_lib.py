@@ -20,6 +20,9 @@ from datetime import datetime
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, PROJECT_ROOT)
 sys.path.insert(0, os.path.join(PROJECT_ROOT, "MARLon"))
+# CyberBattleSim liegt als Unterordner im Repo; ohne diesen Eintrag ist das Paket
+# cyberbattle nur auffindbar, wenn es zusaetzlich per pip installiert wurde.
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "CyberBattleSim"))
 
 from thesis_topology.envs import register_all, ENV_IDS  # noqa: E402
 from marlon.simulate import train  # noqa: E402
